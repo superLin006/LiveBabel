@@ -6,6 +6,10 @@
 
 > Live(实时)+ Babel(巴别塔)。看外语视频/直播时,边播边出中外双语字幕。
 
+![效果图](docs/screenshot.png)
+
+> 白色:英文原文 · 青色:已定稿译文 · 琥珀色:临时译文(等高精度版替换)· 灰色斜体:识别中的草稿
+
 ## 特点
 
 - **实时双语**:抓系统声音 → 本地 ASR → LLM 翻译 → 悬浮窗双语显示。
@@ -27,9 +31,9 @@ conda activate livebabel
 pip install -r requirements.txt
 
 # 2. 下载模型(约 570MB,放到 models/)
-download_models.bat
+packaging\download_models.bat
 
-# 3. 运行
+# 3. 运行(在项目根目录)
 python app.py
 ```
 
@@ -38,10 +42,12 @@ python app.py
 
 > 切换音频输出设备(如插耳机)后,重启程序以重新抓取当前默认设备。
 
+也可用一键脚本:`packaging\setup_windows.bat`(建环境装依赖)→ `packaging\run_windows.bat`(启动)。
+
 ### 打包成 exe
 
 ```bash
-build_exe.bat          # 产物在 dist\RealtimeSubtitle\,模型会自动拷入
+packaging\build_exe.bat    # 在项目根运行,产物在 dist\RealtimeSubtitle\,模型自动拷入
 ```
 
 ## 核心思路
@@ -54,24 +60,30 @@ build_exe.bat          # 产物在 dist\RealtimeSubtitle\,模型会自动拷入
 
 分段用 silero-VAD 按真实语音/静音边界切,比流式模型的 endpoint 规则更自然、不产生静音幻觉碎段。
 
-## 模块
+## 目录结构
 
-| 文件 | 职责 |
-|---|---|
-| `app.py` | GUI 主入口(悬浮窗 + 后台流水线) |
-| `overlay.py` | PySide6 透明置顶字幕悬浮窗 |
-| `vad_engine.py` | VAD 分段 + 两遍 ASR(流式 + SenseVoice) |
-| `commit_manager.py` | volatile/provisional/committed 三态管理(消抖核心) |
-| `translator.py` | DeepSeek 翻译:异步、带上下文、抗 ASR 同音错字、缓存 |
-| `audio_source.py` / `audio_source_windows.py` | 文件源 / Windows 系统声音(WASAPI loopback) |
-| `history_writer.py` | 字幕历史 srt+txt 落盘 |
-| `paths.py` | 资源路径(兼容源码运行与 PyInstaller 打包) |
-| `main.py` / `eval_asr.py` | 命令行调试入口 / ASR 分段评估 |
-| `asr_engine.py` | 备用 endpoint 分段引擎 |
+```
+app.py                              # GUI 主入口(悬浮窗 + 后台流水线)
+livebabel/                          # 核心包
+├── overlay.py                      # PySide6 透明置顶字幕悬浮窗
+├── commit_manager.py               # volatile/provisional/committed 三态管理(消抖核心)
+├── translator.py                   # DeepSeek 翻译:异步、带上下文、抗同音错字、缓存
+├── history_writer.py               # 字幕历史 srt+txt 落盘
+├── paths.py                        # 资源路径(兼容源码 / PyInstaller)
+└── asr/                            # ASR 相关
+    ├── vad_engine.py               # VAD 分段 + 两遍 ASR(流式 + SenseVoice)
+    ├── asr_engine.py               # 备用 endpoint 分段引擎
+    ├── audio_source.py             # 文件源
+    └── audio_source_windows.py     # Windows 系统声音(WASAPI loopback)
+tools/                              # main.py / eval_asr.py / diag_audio.py(调试)
+packaging/                          # subtitle.spec + *.bat(打包/安装脚本)
+models/                             # 模型(不入库,download_models.bat 下载)
+docs/                               # 截图等
+```
 
 ## 模型
 
-通过 `download_models.bat` 下载到 `models/`(不入库):
+通过 `packaging\download_models.bat` 下载到 `models/`(不入库):
 
 - `silero_vad.onnx` — 语音活动检测
 - `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` — 流式 ASR(中英)
