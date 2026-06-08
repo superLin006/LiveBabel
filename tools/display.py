@@ -16,7 +16,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from commit_manager import CommitManager
+from livebabel.commit_manager import CommitManager
 
 
 class ConsoleDisplay:

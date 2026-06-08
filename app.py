@@ -17,18 +17,17 @@ import os
 import sys
 import threading
 
-from commit_manager import CommitManager
-from translator import Translator
-from vad_engine import VadTwoPassAsr
-
-from paths import FIRST_DIR, SECOND_DIR
+from livebabel.commit_manager import CommitManager
+from livebabel.translator import Translator
+from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 
 def build_source(args):
     if args.input:
-        from audio_source import FileSource
+        from livebabel.asr.audio_source import FileSource
         return FileSource(args.input, realtime=True)
-    from audio_source_windows import WasapiLoopbackSource
+    from livebabel.asr.audio_source_windows import WasapiLoopbackSource
     return WasapiLoopbackSource()
 
 
@@ -79,8 +78,8 @@ def main() -> None:
     args = p.parse_args()
 
     from PySide6.QtWidgets import QApplication
-    from overlay import SubtitleOverlay, SubtitleLine
-    from history_writer import HistoryWriter
+    from livebabel.overlay import SubtitleOverlay, SubtitleLine
+    from livebabel.history_writer import HistoryWriter
 
     app = QApplication(sys.argv)
     overlay = SubtitleOverlay()

@@ -141,7 +141,7 @@ class VadTwoPassAsr:
         )
 
     def _build_vad(self, nt: int) -> sherpa_onnx.VoiceActivityDetector:
-        from paths import VAD_MODEL
+        from livebabel.paths import VAD_MODEL
         cfg = sherpa_onnx.VadModelConfig()
         cfg.silero_vad.model = VAD_MODEL
         cfg.silero_vad.threshold = 0.5

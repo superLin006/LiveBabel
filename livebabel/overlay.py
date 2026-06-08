@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from paths import SETTINGS_PATH
+from livebabel.paths import SETTINGS_PATH
 
 LANGS = ["英语", "中文", "日语", "韩语"]
 

@@ -20,7 +20,7 @@ from typing import Iterator
 
 import numpy as np
 
-from audio_source import SAMPLE_RATE, AudioSource
+from livebabel.asr.audio_source import SAMPLE_RATE, AudioSource
 
 
 class WasapiLoopbackSource(AudioSource):

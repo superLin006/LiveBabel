@@ -32,7 +32,7 @@ class HistoryWriter:
                  out_dir: Optional[str] = None) -> None:
         self.save_srt = save_srt
         self.save_txt = save_txt
-        from paths import HISTORY_DIR
+        from livebabel.paths import HISTORY_DIR
         base = out_dir or HISTORY_DIR
         os.makedirs(base, exist_ok=True)
         stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
