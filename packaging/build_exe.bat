@@ -7,12 +7,15 @@ REM ============================================================
 setlocal
 set ENV_NAME=subtitle
 
+REM 切到项目根(本脚本在 packaging\,根是上一级),让 models\ dist\ 在根下解析
+cd /d "%~dp0.."
+
 echo [1/4] Installing PyInstaller ...
 call conda run -n %ENV_NAME% pip install pyinstaller
 if errorlevel 1 goto err
 
-echo [2/4] Building exe from subtitle.spec ...
-call conda run -n %ENV_NAME% pyinstaller --noconfirm subtitle.spec
+echo [2/4] Building exe from packaging\subtitle.spec ...
+call conda run -n %ENV_NAME% pyinstaller --noconfirm packaging\subtitle.spec
 if errorlevel 1 goto err
 
 echo [3/4] Copying models into dist ...

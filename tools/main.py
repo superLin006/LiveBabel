@@ -15,13 +15,17 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import sys
 
-from asr_engine import TwoPassAsr
-from vad_engine import VadTwoPassAsr
-from audio_source import ConcatFileSource, FileSource
-from commit_manager import CommitManager
+# 让 tools/ 下的脚本能找到项目根的 livebabel 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from livebabel.asr.asr_engine import TwoPassAsr
+from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.asr.audio_source import ConcatFileSource, FileSource
+from livebabel.commit_manager import CommitManager
+from livebabel.translator import Translator
 from display import ConsoleDisplay
-from translator import Translator
 
 import sys
 
@@ -52,7 +56,7 @@ class JitterLog:
         self._last = ""
 
 
-from paths import FIRST_DIR, SECOND_DIR
+from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 
 def build_source(args) -> object:

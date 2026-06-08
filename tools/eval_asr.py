@@ -10,15 +10,16 @@ from __future__ import annotations
 import argparse
 import glob
 import os
+import sys
 import time
 
-from asr_engine import TwoPassAsr
-from vad_engine import VadTwoPassAsr
-from audio_source import ConcatFileSource
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-MODELS = os.path.join(os.path.dirname(__file__), "models")
-FIRST_DIR = os.path.join(MODELS, "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20")
-SECOND_DIR = os.path.join(MODELS, "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17")
+from livebabel.asr.asr_engine import TwoPassAsr
+from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.asr.audio_source import ConcatFileSource
+from livebabel.paths import FIRST_DIR, SECOND_DIR
+
 SR = 16000
 
 

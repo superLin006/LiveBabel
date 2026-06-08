@@ -20,7 +20,7 @@ from typing import Iterator
 
 import numpy as np
 
-from audio_source import SAMPLE_RATE, AudioSource
+from livebabel.asr.audio_source import SAMPLE_RATE, AudioSource
 
 
 class WasapiLoopbackSource(AudioSource):
@@ -106,14 +106,16 @@ class WasapiLoopbackSource(AudioSource):
                 while not self._stop:
                     try:
                         raw = stream.read(frames_per_buffer, exception_on_overflow=False)
+                        audio = np.frombuffer(raw, dtype=np.float32)
+                        if channels > 1:                    # 多声道降混成单声道
+                            # 截到整数帧,避免 partial read 时 reshape 抛错杀死线程
+                            n = (len(audio) // channels) * channels
+                            audio = audio[:n].reshape(-1, channels).mean(axis=1)
+                        if native_rate != SAMPLE_RATE:       # 重采样到 16k
+                            audio = self._resample(audio, native_rate, SAMPLE_RATE)
                     except Exception:
-                        time.sleep(0.1)      # 偶发读取错误,稍等重试,不崩
+                        time.sleep(0.1)      # 偶发读取/处理错误,稍等重试,不崩
                         continue
-                    audio = np.frombuffer(raw, dtype=np.float32)
-                    if channels > 1:                       # 多声道降混成单声道
-                        audio = audio.reshape(-1, channels).mean(axis=1)
-                    if native_rate != SAMPLE_RATE:          # 重采样到 16k
-                        audio = self._resample(audio, native_rate, SAMPLE_RATE)
                     yield audio.astype(np.float32)
             finally:
                 try:

@@ -11,10 +11,12 @@ import sys
 
 
 def app_dir() -> str:
-    """程序根目录:打包后是 exe 所在目录,源码运行是项目目录。"""
+    """程序根目录:打包后是 exe 所在目录,源码运行是项目根目录(本文件在 livebabel/ 下,
+    上溯一级到项目根,models/ history/ settings.json 都在那里)。"""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    # livebabel/paths.py → 上溯一级 = 项目根
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def res(*parts: str) -> str:

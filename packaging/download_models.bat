@@ -6,6 +6,7 @@ REM  Skip this if you copied the models folder from WSL.
 REM ============================================================
 setlocal
 set BASE=https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models
+cd /d "%~dp0.."
 if not exist models mkdir models
 cd models
 

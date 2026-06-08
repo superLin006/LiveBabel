@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import queue
 import threading
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Callable, Optional
 
 import requests
@@ -28,19 +28,25 @@ class Translator:
         self,
         on_result: Callable[[int, str], None],
         target_lang: str = "英文",
-        context_size: int = 3,
+        context_size: int = 4,
         api_key: str = "",
+        cache_max: int = 2000,
     ) -> None:
         """on_result(seg_id, translation): 译文就绪时回调(在后台线程中)。
 
         api_key 优先用传入的(来自设置),否则回退到环境变量 DEEPSEEK_API_KEY。
+        context_size: 给 LLM 的上下文只保留最近这么多句(deque 自动丢旧),
+                      所以无论视频多长,每次请求 prompt 大小恒定,不会爆。
+        cache_max: 译文缓存条数上限,超了丢最旧的,长视频也不会无限占内存。
         """
         self.on_result = on_result
         self.target_lang = target_lang
         self.api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
-        self._q: queue.Queue[Optional[tuple[int, str]]] = queue.Queue()
-        self._inflight = 0   # 已提交但未完成的翻译数(含请求中)
-        self._cache: dict[tuple[str, str], str] = {}
+        self._q: queue.Queue[Optional[tuple[int, str, bool]]] = queue.Queue()
+        self._inflight = 0          # 已提交但未完成的翻译数(含请求中)
+        self._inflight_lock = threading.Lock()
+        self._cache: "OrderedDict[tuple[str, str], str]" = OrderedDict()
+        self._cache_max = cache_max
         self._history: deque[tuple[str, str]] = deque(maxlen=context_size)
         self._worker = threading.Thread(target=self._run, daemon=True)
         self._worker.start()
@@ -51,7 +57,8 @@ class Translator:
         临时和最终译文都带上下文以保证质量;quick=True(临时)仅表示"不写回历史"
         (因为临时文本会被 SenseVoice 最终版替换,不该污染后续上下文)。
         """
-        self._inflight += 1
+        with self._inflight_lock:
+            self._inflight += 1
         self._q.put((seg_id, text, quick))
 
     def join(self, timeout: float = 30.0) -> None:
@@ -64,6 +71,13 @@ class Translator:
     def close(self) -> None:
         self._q.put(None)
 
+    def _cache_put(self, key, value) -> None:
+        """带上限的缓存写入:超出 cache_max 丢最旧的(LRU 式),防长视频内存膨胀。"""
+        self._cache[key] = value
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._cache_max:
+            self._cache.popitem(last=False)
+
     # ---------- 后台线程 ----------
 
     def _run(self) -> None:
@@ -75,24 +89,26 @@ class Translator:
             try:
                 translation = self._translate(text, quick=quick)
                 self.on_result(seg_id, translation)
+            except Exception:
+                pass        # 单条翻译/回调出错不应杀死 worker 线程
             finally:
-                self._inflight -= 1
+                with self._inflight_lock:
+                    self._inflight -= 1
 
     def _translate(self, text: str, quick: bool = False) -> str:
-        # 缓存键带语种,切换目标语言后不会命中旧语种的译文
-        key = (self.target_lang, text)
+        # 先把目标语种取到局部变量:整次翻译用同一个语种,避免中途被 GUI 改掉
+        # 导致缓存键和实际译文语种不一致(英文 key 存了日文译文)。
+        lang = self.target_lang
+        key = (lang, text)
         if key in self._cache:
             return self._cache[key]
         if not self.api_key:
-            result = f"[未设置 DEEPSEEK_API_KEY,跳过翻译]"
-            self._cache[key] = result
-            return result
+            return "[未设置 DEEPSEEK_API_KEY,跳过翻译]"
         try:
-            result = self._call_api(text, quick=quick)
-        except Exception as e:  # 网络/限流等,降级不崩
-            result = f"[翻译失败: {type(e).__name__}]"
-            return result
-        self._cache[key] = result
+            result = self._call_api(text, lang, quick=quick)
+        except Exception as e:  # 网络/限流等,降级不崩(不缓存,下次可重试)
+            return f"[翻译失败: {type(e).__name__}]"
+        self._cache_put(key, result)
         # 只有最终译文入历史(临时译文是 Pass1 草稿,不污染上下文)
         if not quick:
             self._history.append((text, result))
@@ -105,8 +121,9 @@ class Translator:
         "不要把错字直译。译文要准确、口语化、简洁。"
     )
 
-    def _call_api(self, text: str, quick: bool = False) -> str:
+    def _call_api(self, text: str, lang: str, quick: bool = False) -> str:
         # 临时和最终译文都注入上下文(术语/语境一致);区别只在临时译文不写回历史。
+        # 上下文只取 _history(deque 限长,最近几句),所以不随视频变长而膨胀。
         ctx = ""
         if self._history:
             lines = [f"原文:{s}\n译文:{t}" for s, t in self._history]
@@ -117,7 +134,7 @@ class Translator:
             )
         prompt = (
             f"{ctx}请把下面这句(ASR 识别结果,可能有同音错字)翻译成"
-            f"{self.target_lang}。只输出译文本身,不要任何解释、引号或前缀:\n{text}"
+            f"{lang}。只输出译文本身,不要任何解释、引号或前缀:\n{text}"
         )
         resp = requests.post(
             API_URL,

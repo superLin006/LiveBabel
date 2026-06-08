@@ -18,7 +18,7 @@ import os
 from dataclasses import dataclass
 from typing import List, Optional
 
-from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtCore import Qt, QPoint, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from paths import SETTINGS_PATH
+from livebabel.paths import SETTINGS_PATH
 
 LANGS = ["英语", "中文", "日语", "韩语"]
 
@@ -124,6 +124,12 @@ class SubtitleOverlay(QWidget):
         self._grip.hide()     # 平时隐藏,鼠标悬停才出现
 
         self._lines_signal.connect(self._render)
+
+        # 几何持久化做防抖:拖动/缩放停止 0.6 秒后才写一次盘,避免每像素都写文件
+        self._geo_timer = QTimer(self)
+        self._geo_timer.setSingleShot(True)
+        self._geo_timer.setInterval(600)
+        self._geo_timer.timeout.connect(self._save_geo)
 
         # 恢复几何
         geo = self.s.get("geometry")
@@ -274,7 +280,10 @@ class SubtitleOverlay(QWidget):
 
         a_src = QAction("显示原文", self, checkable=True)
         a_src.setChecked(self.s["show_source"])
-        a_src.triggered.connect(lambda _=False: self._set("show_source", not self.s["show_source"]))
+        a_src.triggered.connect(
+            lambda _=False: (self._set("show_source", not self.s["show_source"]),
+                             self._sync_toolbar())
+        )
         m.addAction(a_src)
 
         a_lock = QAction("锁定位置", self, checkable=True)
@@ -335,7 +344,7 @@ class SubtitleOverlay(QWidget):
         self._grip.resize(g, g)
         self._grip.move(self.width() - g, self.height() - g)
         self._grip.raise_()
-        self._save_geo()
+        self._geo_timer.start()      # 防抖:停止缩放 0.6s 后才写盘
         super().resizeEvent(e)
 
     # ---- 悬停才显示背景/手柄(桌面歌词式) ----
@@ -380,7 +389,7 @@ class SubtitleOverlay(QWidget):
 
     def mouseReleaseEvent(self, e) -> None:
         self._drag_pos = None
-        self._save_geo()
+        self._geo_timer.start()      # 拖动结束后防抖写盘
 
     def _save_geo(self) -> None:
         g = self.geometry()

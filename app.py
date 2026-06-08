@@ -17,18 +17,17 @@ import os
 import sys
 import threading
 
-from commit_manager import CommitManager
-from translator import Translator
-from vad_engine import VadTwoPassAsr
-
-from paths import FIRST_DIR, SECOND_DIR
+from livebabel.commit_manager import CommitManager
+from livebabel.translator import Translator
+from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 
 def build_source(args):
     if args.input:
-        from audio_source import FileSource
+        from livebabel.asr.audio_source import FileSource
         return FileSource(args.input, realtime=True)
-    from audio_source_windows import WasapiLoopbackSource
+    from livebabel.asr.audio_source_windows import WasapiLoopbackSource
     return WasapiLoopbackSource()
 
 
@@ -55,11 +54,16 @@ def pipeline_thread(args, manager: CommitManager, translator, on_change,
             manager.update_volatile(evt.text)
         on_change()
 
+    was_paused = False
     for chunk in source.frames():
         if stop_flag():
             break
         if pause_flag():
-            continue          # 暂停时丢弃音频,不识别不翻译(适合直播/系统声音)
+            if not was_paused:
+                asr.reset()       # 进入暂停:清掉半句状态,恢复后不会和暂停前接成一句
+                was_paused = True
+            continue              # 暂停时丢弃音频,不识别不翻译
+        was_paused = False
         for evt in asr.feed(chunk):
             handle(evt)
     for evt in asr.finalize():
@@ -74,8 +78,8 @@ def main() -> None:
     args = p.parse_args()
 
     from PySide6.QtWidgets import QApplication
-    from overlay import SubtitleOverlay, SubtitleLine
-    from history_writer import HistoryWriter
+    from livebabel.overlay import SubtitleOverlay, SubtitleLine
+    from livebabel.history_writer import HistoryWriter
 
     app = QApplication(sys.argv)
     overlay = SubtitleOverlay()
@@ -121,13 +125,14 @@ def main() -> None:
                     history.add(seg.text, tr)
         translator.on_result = set_and_refresh
 
-    # 右键切换语种 → 改 translator 目标语言;已显示的句子重新翻译
+    # 右键切换语种 → 改 translator 目标语言;屏幕上已显示的句子重新翻译。
+    # 重译用 quick=True:这些是回填,不该再写进上下文历史(避免重复污染)。
     def on_lang_changed(lang: str) -> None:
         if not translator:
             return
         translator.target_lang = lang
         for seg in manager.committed[-overlay.max_lines:]:
-            translator.submit(seg.id, seg.text)
+            translator.submit(seg.id, seg.text, quick=True)
     overlay.lang_changed.connect(on_lang_changed)
 
     stopped = {"v": False}

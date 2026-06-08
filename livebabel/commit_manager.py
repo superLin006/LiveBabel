@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import itertools
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -34,10 +35,15 @@ class Segment:
 
 
 class CommitManager:
+    """三态字幕状态。被多个线程访问(管线线程改、翻译线程回填、GUI 线程读),
+    所有读写都用 self._lock 保护,避免 _segments 在迭代/替换时被并发改动。
+    """
+
     def __init__(self) -> None:
         self._segments: list[Segment] = []
         self._ids = itertools.count()
         self._volatile: Optional[Segment] = None
+        self._lock = threading.Lock()
 
     # ---- volatile:流式 ASR 每出一次结果就调这里 ----
 
@@ -45,13 +51,14 @@ class CommitManager:
         text = text.strip()
         if not text:
             return
-        if self._volatile is None:
-            self._volatile = Segment(id=next(self._ids), text=text,
-                                     audio_start=audio_start, audio_end=audio_end)
-            self._segments.append(self._volatile)
-        else:
-            self._volatile.text = text
-            self._volatile.audio_end = audio_end
+        with self._lock:
+            if self._volatile is None:
+                self._volatile = Segment(id=next(self._ids), text=text,
+                                         audio_start=audio_start, audio_end=audio_end)
+                self._segments.append(self._volatile)
+            else:
+                self._volatile.text = text
+                self._volatile.audio_end = audio_end
 
     # ---- 子句定稿:把一段文本作为独立的已定稿行加入 ----
 
@@ -63,11 +70,12 @@ class CommitManager:
         text = text.strip()
         if not text:
             return None
-        seg = Segment(id=next(self._ids), text=text,
-                      provisional=provisional, committed=True, utt_id=utt_id)
-        self._segments.append(seg)
-        self._volatile = None
-        return seg
+        with self._lock:
+            seg = Segment(id=next(self._ids), text=text,
+                          provisional=provisional, committed=True, utt_id=utt_id)
+            self._segments.append(seg)
+            self._volatile = None
+            return seg
 
     def replace_utterance(self, utt_id: int, final_text: str) -> Optional[Segment]:
         """段结束:删除该段所有临时子句,用 SenseVoice 整段高精度文本替换为一行最终段。
@@ -77,48 +85,54 @@ class CommitManager:
         final_text = final_text.strip()
         if not final_text:
             return None
-        # 找到该段第一条临时子句的位置
-        insert_at = None
-        kept: list[Segment] = []
-        for i, s in enumerate(self._segments):
-            if s.utt_id == utt_id and s.provisional:
-                if insert_at is None:
-                    insert_at = len(kept)
+        with self._lock:
+            # 找到该段第一条临时子句的位置
+            insert_at = None
+            kept: list[Segment] = []
+            for s in self._segments:
+                if s.utt_id == utt_id and s.provisional:
+                    if insert_at is None:
+                        insert_at = len(kept)
+                else:
+                    kept.append(s)
+            seg = Segment(id=next(self._ids), text=final_text,
+                          provisional=False, committed=True, utt_id=utt_id)
+            if insert_at is None:
+                kept.append(seg)
             else:
-                kept.append(s)
-        seg = Segment(id=next(self._ids), text=final_text,
-                      provisional=False, committed=True, utt_id=utt_id)
-        if insert_at is None:
-            kept.append(seg)
-        else:
-            kept.insert(insert_at, seg)
-        self._segments = kept
-        self._volatile = None
-        return seg
+                kept.insert(insert_at, seg)
+            self._segments = kept
+            self._volatile = None
+            return seg
 
     # ---- 翻译回填 ----
 
     def set_translation(self, seg_id: int, translation: str) -> None:
-        for seg in self._segments:
-            if seg.id == seg_id:
-                seg.translation = translation
-                return
+        with self._lock:
+            for seg in self._segments:
+                if seg.id == seg_id:
+                    seg.translation = translation
+                    return
 
     def get(self, seg_id: int) -> Optional[Segment]:
-        for seg in self._segments:
-            if seg.id == seg_id:
-                return seg
-        return None
+        with self._lock:
+            for seg in self._segments:
+                if seg.id == seg_id:
+                    return seg
+            return None
 
     # ---- 查询 ----
 
     @property
     def committed(self) -> list[Segment]:
-        return [s for s in self._segments if s.committed]
+        with self._lock:
+            return [s for s in self._segments if s.committed]
 
     @property
     def volatile(self) -> Optional[Segment]:
         return self._volatile
 
     def recent(self, n_committed: int = 3):
-        return self.committed[-n_committed:], self._volatile
+        with self._lock:
+            committed = [s for s in self._segments if s.committed]
+            return committed[-n_committed:], self._volatile

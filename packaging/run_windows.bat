@@ -7,6 +7,7 @@ REM ============================================================
 setlocal
 
 set ENV_NAME=subtitle
+cd /d "%~dp0.."
 
 if "%DEEPSEEK_API_KEY%"=="" (
     set /p DEEPSEEK_API_KEY=Enter DeepSeek API Key:
