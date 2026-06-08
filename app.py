@@ -55,11 +55,16 @@ def pipeline_thread(args, manager: CommitManager, translator, on_change,
             manager.update_volatile(evt.text)
         on_change()
 
+    was_paused = False
     for chunk in source.frames():
         if stop_flag():
             break
         if pause_flag():
-            continue          # 暂停时丢弃音频,不识别不翻译(适合直播/系统声音)
+            if not was_paused:
+                asr.reset()       # 进入暂停:清掉半句状态,恢复后不会和暂停前接成一句
+                was_paused = True
+            continue              # 暂停时丢弃音频,不识别不翻译
+        was_paused = False
         for evt in asr.feed(chunk):
             handle(evt)
     for evt in asr.finalize():
@@ -121,13 +126,14 @@ def main() -> None:
                     history.add(seg.text, tr)
         translator.on_result = set_and_refresh
 
-    # 右键切换语种 → 改 translator 目标语言;已显示的句子重新翻译
+    # 右键切换语种 → 改 translator 目标语言;屏幕上已显示的句子重新翻译。
+    # 重译用 quick=True:这些是回填,不该再写进上下文历史(避免重复污染)。
     def on_lang_changed(lang: str) -> None:
         if not translator:
             return
         translator.target_lang = lang
         for seg in manager.committed[-overlay.max_lines:]:
-            translator.submit(seg.id, seg.text)
+            translator.submit(seg.id, seg.text, quick=True)
     overlay.lang_changed.connect(on_lang_changed)
 
     stopped = {"v": False}

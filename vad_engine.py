@@ -165,6 +165,24 @@ class VadTwoPassAsr:
 
     # ---------- 主接口 ----------
 
+    def reset(self) -> None:
+        """丢弃当前未完成的识别状态(暂停时调用,避免暂停前后的音频被接成一句)。
+
+        清空流式识别器、VAD 缓冲、以及段内 provisional 状态。已定稿的句子不受影响。
+        """
+        try:
+            self.first.reset(self.stream)
+        except Exception:
+            pass
+        try:
+            self.vad.reset()
+        except Exception:
+            pass
+        self._provisional_prefix = ""
+        self._samples_since_prov = 0
+        self._utt_had_prov = False
+        self._utt_id += 1
+
     def _next_idx(self) -> int:
         i = self._committed_count
         self._committed_count += 1
