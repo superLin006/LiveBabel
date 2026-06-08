@@ -1,0 +1,9 @@
+# 实时双语字幕 —— Windows 运行依赖
+# 用法见 setup_windows.bat / run_windows.bat
+sherpa-onnx==1.13.2
+numpy
+soundfile
+requests
+rich
+PySide6
+pyaudiowpatch        # Windows 系统声音采集(WASAPI loopback),仅 Windows 可装

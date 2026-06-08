@@ -1,0 +1,140 @@
+"""翻译层:DeepSeek API。
+
+只翻译已定稿(committed)的句子。要点:
+  * 异步:放后台线程跑,不阻塞 ASR 主循环。
+  * 带上下文:把最近几句已译内容作为上下文,保证术语/代词一致、措辞连贯。
+  * 缓存:相同原文不重复请求,省钱省延迟。
+  * 优雅降级:没有 API key 或请求失败时,返回占位串,不影响晃动验证。
+
+key 从环境变量 DEEPSEEK_API_KEY 读,绝不硬编码。
+"""
+
+from __future__ import annotations
+
+import os
+import queue
+import threading
+from collections import deque
+from typing import Callable, Optional
+
+import requests
+
+API_URL = "https://api.deepseek.com/chat/completions"
+MODEL = "deepseek-chat"
+
+
+class Translator:
+    def __init__(
+        self,
+        on_result: Callable[[int, str], None],
+        target_lang: str = "英文",
+        context_size: int = 3,
+        api_key: str = "",
+    ) -> None:
+        """on_result(seg_id, translation): 译文就绪时回调(在后台线程中)。
+
+        api_key 优先用传入的(来自设置),否则回退到环境变量 DEEPSEEK_API_KEY。
+        """
+        self.on_result = on_result
+        self.target_lang = target_lang
+        self.api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+        self._q: queue.Queue[Optional[tuple[int, str]]] = queue.Queue()
+        self._inflight = 0   # 已提交但未完成的翻译数(含请求中)
+        self._cache: dict[tuple[str, str], str] = {}
+        self._history: deque[tuple[str, str]] = deque(maxlen=context_size)
+        self._worker = threading.Thread(target=self._run, daemon=True)
+        self._worker.start()
+
+    def submit(self, seg_id: int, text: str, quick: bool = False) -> None:
+        """提交一句已定稿文本去翻译(立即返回)。
+
+        临时和最终译文都带上下文以保证质量;quick=True(临时)仅表示"不写回历史"
+        (因为临时文本会被 SenseVoice 最终版替换,不该污染后续上下文)。
+        """
+        self._inflight += 1
+        self._q.put((seg_id, text, quick))
+
+    def join(self, timeout: float = 30.0) -> None:
+        """阻塞直到所有已提交的翻译真正完成(含正在请求中的),不会漏译也不会空等。"""
+        import time
+        deadline = time.time() + timeout
+        while self._inflight > 0 and time.time() < deadline:
+            time.sleep(0.05)
+
+    def close(self) -> None:
+        self._q.put(None)
+
+    # ---------- 后台线程 ----------
+
+    def _run(self) -> None:
+        while True:
+            item = self._q.get()
+            if item is None:
+                break
+            seg_id, text, quick = item
+            try:
+                translation = self._translate(text, quick=quick)
+                self.on_result(seg_id, translation)
+            finally:
+                self._inflight -= 1
+
+    def _translate(self, text: str, quick: bool = False) -> str:
+        # 缓存键带语种,切换目标语言后不会命中旧语种的译文
+        key = (self.target_lang, text)
+        if key in self._cache:
+            return self._cache[key]
+        if not self.api_key:
+            result = f"[未设置 DEEPSEEK_API_KEY,跳过翻译]"
+            self._cache[key] = result
+            return result
+        try:
+            result = self._call_api(text, quick=quick)
+        except Exception as e:  # 网络/限流等,降级不崩
+            result = f"[翻译失败: {type(e).__name__}]"
+            return result
+        self._cache[key] = result
+        # 只有最终译文入历史(临时译文是 Pass1 草稿,不污染上下文)
+        if not quick:
+            self._history.append((text, result))
+        return result
+
+    SYSTEM_PROMPT = (
+        "你是专业的实时字幕翻译。输入文本来自语音识别(ASR),可能含有"
+        "同音字错误(如人名、地名、专有名词被识别成发音相近的字)。"
+        "请结合上下文推断说话人的真实意思后再翻译,纠正明显的同音误识,"
+        "不要把错字直译。译文要准确、口语化、简洁。"
+    )
+
+    def _call_api(self, text: str, quick: bool = False) -> str:
+        # 临时和最终译文都注入上下文(术语/语境一致);区别只在临时译文不写回历史。
+        ctx = ""
+        if self._history:
+            lines = [f"原文:{s}\n译文:{t}" for s, t in self._history]
+            ctx = (
+                "【已翻译的上文,供理解语境、保持术语和风格一致】\n"
+                + "\n".join(lines)
+                + "\n\n"
+            )
+        prompt = (
+            f"{ctx}请把下面这句(ASR 识别结果,可能有同音错字)翻译成"
+            f"{self.target_lang}。只输出译文本身,不要任何解释、引号或前缀:\n{text}"
+        )
+        resp = requests.post(
+            API_URL,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": MODEL,
+                "messages": [
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 1.3,
+                "stream": False,
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()

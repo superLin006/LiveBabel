@@ -1,0 +1,32 @@
+# 模型文件太大,不入库,用 download_models.bat 下载
+models/
+
+# 运行时生成物
+settings.json
+history/
+*.srt
+*.txt
+!requirements.txt
+
+# 打包产物
+build/
+dist/
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 临时
+*.log
+overlay_preview.png
+overlay_toolbar.png
+
+# 编辑器/系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
