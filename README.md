@@ -116,28 +116,44 @@ CPU 上 RTF ≈ 0.1(处理速度约为实时的 10 倍),实时余量充足。延
 
 - [x] 实时模式:抓系统声音 → 两遍 ASR → LLM 翻译 → 悬浮窗双语字幕
 - [x] 历史记录(srt/txt)、多语种切换、悬停工具栏、PyInstaller 打包
-- [ ] **离线模式**:给视频文件离线生成双语字幕(见下图)
+- [x] **离线模式**:视频文件 → 双语 SRT/ASS,可选硬压进视频
 - [ ] 翻译流式输出(译文逐字出现)
 - [ ] 设置面板(字体/颜色/位置/快捷键)
 - [ ] GPU 加速(已留 `provider="cuda"` 口子)
 
-### 离线模式(规划中)
+## 离线模式
 
-给一个视频文件,离线生成带时间轴的双语字幕,可选硬压进视频:
+给一个视频文件,离线生成带时间轴的双语字幕(SRT + ASS),可选硬压进视频。
+识别用 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 的 large-v3-turbo
+(99 种语言、段级时间戳、不依赖 torch),翻译复用 DeepSeek。
 
 ```mermaid
 flowchart LR
     A[视频文件] --> B[ffmpeg<br/>提取音轨]
-    B --> C[FunASR<br/>整段识别·带时间戳]
+    B --> C[faster-whisper<br/>turbo·带时间戳]
     C --> D[按句切分<br/>原文 + 时间轴]
-    D --> E[LLM 翻译<br/>整段带上下文]
-    E --> F[生成双语字幕<br/>SRT / ASS]
+    D --> E[DeepSeek 翻译<br/>整段带上下文]
+    E --> F[生成双语字幕<br/>SRT + ASS]
     F --> G[输出字幕文件]
-    F -.可选.-> H[ffmpeg 硬压<br/>烧录进视频]
+    F -.--burn.-> H[ffmpeg 硬压<br/>烧录进视频]
 ```
 
-> 离线场景不需要消抖(有完整音频和时间戳),质量比实时更高;翻译可复用现有
-> `translator.py`,按整段+上下文一次性翻译。
+```bash
+pip install faster-whisper
+set DEEPSEEK_API_KEY=你的key
+
+# 生成双语 SRT + ASS(与视频同目录同名)
+python tools/offline_subtitle.py 视频.mp4 --lang 中文
+
+# 指定源语言加速、并把字幕硬压进视频
+python tools/offline_subtitle.py 视频.mp4 --lang 中文 --source-lang en --burn
+```
+
+常用参数:`--lang`(译文语种)、`--source-lang`(源语言,不填自动检测)、
+`--burn`(硬压进视频)、`--no-translate`(只出原文)、`--model`(默认 large-v3-turbo)、
+`--device cuda --compute-type float16`(用 GPU)。
+
+> 离线场景不需要消抖(有完整音频和时间戳),质量比实时更高;翻译按整段 + 滚动上下文逐句进行。
 
 ## 许可
 

@@ -7,3 +7,6 @@ requests
 rich
 PySide6
 pyaudiowpatch        # Windows 系统声音采集(WASAPI loopback),仅 Windows 可装
+
+# 离线模式(tools/offline_subtitle.py)。不用离线功能可不装。
+faster-whisper       # 离线识别(large-v3-turbo,99 语言,带时间戳,不依赖 torch)
