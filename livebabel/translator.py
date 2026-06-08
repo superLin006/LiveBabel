@@ -28,7 +28,7 @@ class Translator:
         self,
         on_result: Callable[[int, str], None],
         target_lang: str = "英文",
-        context_size: int = 4,
+        context_size: int = 3,
         api_key: str = "",
         cache_max: int = 2000,
     ) -> None:

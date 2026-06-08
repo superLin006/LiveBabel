@@ -154,7 +154,7 @@ class SubtitleOverlay(QWidget):
         lab.setWordWrap(True)
         lab.setTextFormat(Qt.PlainText)
         lab.setAlignment(Qt.AlignHCenter | Qt.AlignBottom)
-        f = QFont("Microsoft YaHei", size)
+        f = QFont("Microsoft YaHei", max(1, int(size)))   # 字号兜底 >=1,防 fp-1 取到 0/负
         f.setItalic(italic)
         f.setBold(not italic)
         lab.setFont(f)
