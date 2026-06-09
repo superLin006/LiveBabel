@@ -50,8 +50,9 @@ class FileSource(AudioSource):
 
     def _decode(self) -> np.ndarray:
         """用 ffmpeg 把任意输入解码成 16k mono float32。"""
+        from livebabel.ffmpeg_tool import find_ffmpeg
         cmd = [
-            "ffmpeg", "-nostdin", "-loglevel", "error",
+            find_ffmpeg(), "-nostdin", "-loglevel", "error",
             "-i", self.path,
             "-f", "f32le", "-acodec", "pcm_f32le",
             "-ac", "1", "-ar", str(SAMPLE_RATE),

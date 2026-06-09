@@ -16,12 +16,14 @@ def burn_subtitle(video_path: str, subtitle_path: str, output_path: str) -> None
     用 ASS 效果最好(保留样式)。ffmpeg 的 subtitles 滤镜对路径里的特殊字符敏感,
     这里转成绝对路径并转义。
     """
+    from livebabel.ffmpeg_tool import find_ffmpeg
+    ffmpeg = find_ffmpeg()
     sub = os.path.abspath(subtitle_path)
     # ffmpeg subtitles 滤镜里 Windows 盘符冒号、反斜杠、单引号都要转义
     sub_escaped = sub.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
     vf = f"subtitles='{sub_escaped}'"
     cmd = [
-        "ffmpeg", "-nostdin", "-y", "-loglevel", "error", "-stats",
+        ffmpeg, "-nostdin", "-y", "-loglevel", "error", "-stats",
         "-i", video_path,
         "-vf", vf,
         "-c:a", "copy",          # 音频不重编码

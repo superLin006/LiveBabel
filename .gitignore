@@ -1,6 +1,9 @@
 # 模型文件太大,不入库,用 download_models.bat 下载
 models/
 
+# 随项目放置的 ffmpeg 二进制(不入库)
+ffmpeg/
+
 # 运行时生成物
 settings.json
 history/

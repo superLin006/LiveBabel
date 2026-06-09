@@ -24,10 +24,12 @@ class Sentence:
 
 def _extract_audio(video_path: str) -> str:
     """用 ffmpeg 把视频音轨提取成 16k mono wav(faster-whisper 喜欢的格式)到临时文件。"""
+    from livebabel.ffmpeg_tool import find_ffmpeg
+    ffmpeg = find_ffmpeg()
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
     cmd = [
-        "ffmpeg", "-nostdin", "-y", "-loglevel", "error",
+        ffmpeg, "-nostdin", "-y", "-loglevel", "error",
         "-i", video_path,
         "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
         tmp.name,
