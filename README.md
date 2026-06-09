@@ -101,11 +101,17 @@ docs/                               # 截图等
 
 ## 模型
 
-通过 `packaging\download_models.bat` 下载到 `models/`(不入库):
+模型放在 `models/`(不入库)。实时模式的三个 sherpa-onnx 模型用
+`packaging\download_models.bat` 下载:
 
 - `silero_vad.onnx` — 语音活动检测
 - `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` — 流式 ASR(中英)
 - `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` — 非流式高精度 ASR
+
+离线模式的 whisper 模型:首次运行 `offline_subtitle.py` 会自动下载到 HuggingFace 缓存;
+若想固定到项目里、避免重复下载,把模型整个目录放到
+`models/faster-whisper-large-v3-turbo/`(含 model.bin / config.json / tokenizer.json /
+vocabulary.json / preprocessor_config.json),程序会优先用本地的。
 
 ## 性能
 

@@ -54,11 +54,21 @@ def transcribe(
     device/compute_type: cpu+int8 最省;有 N 卡可传 device="cuda", compute_type="float16"。
     on_progress(done_seconds, total_seconds): 可选进度回调。
     """
+    import os
     from faster_whisper import WhisperModel
+
+    # 优先用本地模型目录(models/faster-whisper-large-v3-turbo),没放才按名字自动下载
+    model_ref = model_size
+    try:
+        from livebabel.paths import WHISPER_DIR
+        if model_size == "large-v3-turbo" and os.path.isdir(WHISPER_DIR):
+            model_ref = WHISPER_DIR
+    except Exception:
+        pass
 
     audio = _extract_audio(video_path)
     try:
-        model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        model = WhisperModel(model_ref, device=device, compute_type=compute_type)
         segments, info = model.transcribe(
             audio,
             language=language,
