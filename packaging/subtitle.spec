@@ -66,7 +66,22 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "PySide6.QtWebEngineCore"],
+    # 排除大量不用的库:torch/transformers/funasr/modelscope/jieba 等都是早期
+    # 评估 FunASR 时装的残留,改用 faster-whisper(基于 CTranslate2,不依赖 torch)
+    # 后已不需要。排除它们能把分发包从 ~4G 砍到 ~1.5G(不含模型)。
+    # 这些只是不打进包,不动开发环境。
+    excludes=[
+        "tkinter", "matplotlib", "PySide6.QtWebEngineCore",
+        "torch", "torchaudio", "torchvision",
+        "transformers", "funasr", "modelscope", "jieba",
+        "numba", "llvmlite", "sklearn", "scikit_learn", "scipy",
+        "sympy", "networkx", "pandas",
+        # PySide6 里用不到的大模块
+        "PySide6.QtWebEngineWidgets", "PySide6.QtQuick", "PySide6.QtQml",
+        "PySide6.Qt3DCore", "PySide6.QtCharts", "PySide6.QtDataVisualization",
+        "PySide6.QtMultimedia", "PySide6.QtPdf",
+        "PySide6.QtTest", "PySide6.QtDesigner",
+    ],
     noarchive=False,
 )
 
