@@ -18,18 +18,49 @@ _done = False
 
 
 def _nvidia_bin_dirs() -> list[str]:
-    """列出所有 nvidia-* pip 包里的 bin 目录(cublas/cudnn/cublasLt 等都在其下)。"""
+    """列出所有可能放着 cuBLAS/cuDNN DLL 的目录。
+
+    覆盖两种部署:
+      * 源码运行:pip 包 site-packages\\nvidia\\<子包>\\bin\\
+      * PyInstaller 打包:DLL 被收集进 exe 旁的 bundle 目录(可能保留
+        nvidia\\<子包>\\bin\\ 结构,也可能被摊平到 bundle 根),所以把 bundle 根
+        及其下含 cublas/cudnn DLL 的目录都纳入。
+    """
     dirs: list[str] = []
+
+    # 源码模式:import nvidia 找包目录
     try:
         import nvidia
         base = os.path.dirname(nvidia.__file__)
+        for bin_dir in glob.glob(os.path.join(base, "*", "bin")):
+            if os.path.isdir(bin_dir):
+                dirs.append(bin_dir)
     except Exception:
-        return dirs
-    # site-packages\nvidia\<任意子包>\bin
-    for bin_dir in glob.glob(os.path.join(base, "*", "bin")):
-        if os.path.isdir(bin_dir):
-            dirs.append(bin_dir)
-    return dirs
+        pass
+
+    # 打包模式:扫描 bundle 根(_MEIPASS / exe 目录)
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle is None and getattr(sys, "frozen", False):
+        bundle = os.path.dirname(sys.executable)
+    if bundle:
+        # bundle 根本身可能就放着 dll
+        if glob.glob(os.path.join(bundle, "cublas64_*.dll")) or \
+           glob.glob(os.path.join(bundle, "cudnn64_*.dll")):
+            dirs.append(bundle)
+        # 也可能保留了 nvidia\<子包>\bin 结构
+        for bin_dir in glob.glob(os.path.join(bundle, "**", "bin"), recursive=True):
+            if os.path.isdir(bin_dir) and bin_dir not in dirs:
+                if glob.glob(os.path.join(bin_dir, "cu*64_*.dll")):
+                    dirs.append(bin_dir)
+
+    # 去重保序
+    seen = set()
+    out = []
+    for d in dirs:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
 
 
 def ensure_cuda_dlls() -> list[str]:

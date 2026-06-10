@@ -1,34 +1,68 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller 打包配置:LiveBabel(CPU 版)
+# PyInstaller 打包配置:LiveBabel(GPU 开箱即用版)
 #
-# 在项目根目录(已激活 subtitle 环境)执行:
+# 必须在 Windows 上、已激活 subtitle 环境里执行(PyInstaller 不能跨平台):
 #     pip install pyinstaller
 #     pyinstaller packaging/subtitle.spec
-# 产物在 dist\RealtimeSubtitle\,把 models\ 目录拷进去即可分发。
+# 产物在 dist\LiveBabel\。再把 models\ 和 ffmpeg\ 拷进 dist\LiveBabel\ 即可整包分发。
 #
-# 设计:模型(~600MB)不打进 exe,放在 exe 旁边的 models\,这样 exe 小、可换模型。
+# 设计目标:别人解压即用,无需装 Python / CUDA / ffmpeg。
+#   - 模型(~600MB):不打进 exe,放 exe 旁 models\(包可换模型、首次离线会自动下 whisper)
+#   - ffmpeg.exe:放 exe 旁 ffmpeg\(本 spec 会把项目根 ffmpeg\ 一起拷进去)
+#   - GPU 运行时(cuBLAS/cuDNN):随 nvidia-* 包一起收集打包,有 N 卡开箱即用,
+#     没 N 卡的机器代码会自动回退 CPU。
 
 import os
-from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_dynamic_libs, collect_submodules, collect_data_files,
+)
 
-# 项目根 = 本 spec 所在目录(packaging/)的上一级
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(SPEC)))
 
-# sherpa-onnx 的 .dll / .so 必须随包带上,否则运行时找不到原生库
-binaries = collect_dynamic_libs("sherpa_onnx")
+# ---- 原生库(.dll/.so / .pyd 依赖)----
+# 这些库带 C 扩展,必须把它们的动态库一起收集,否则运行时崩溃。
+binaries = []
+for pkg in ("sherpa_onnx", "ctranslate2", "av", "onnxruntime"):
+    binaries += collect_dynamic_libs(pkg)
+# GPU 运行时:nvidia-cublas-cu12 / nvidia-cudnn-cu12 的 DLL(没装这两个包则为空,
+# 那就是 CPU-only 包)。装了就自动打进去 → GPU 开箱即用。
+for pkg in ("nvidia.cublas", "nvidia.cudnn"):
+    try:
+        binaries += collect_dynamic_libs(pkg)
+    except Exception:
+        pass
 
-# 动态导入的模块 + 本项目 livebabel 包,显式声明,避免被裁掉
+# ---- 数据文件 ----
+# faster-whisper 自带 silero_vad_v6.onnx(我们 transcribe 用 vad_filter=True 必需);
+# av/ctranslate2 也可能带数据文件。
+datas = []
+for pkg in ("faster_whisper", "av", "ctranslate2"):
+    try:
+        datas += collect_data_files(pkg)
+    except Exception:
+        pass
+# 把项目根的 ffmpeg\ 目录原样拷进分发包(若存在),实现零配置烧录/解码
+_ffmpeg_dir = os.path.join(ROOT, "ffmpeg")
+if os.path.isdir(_ffmpeg_dir):
+    for name in os.listdir(_ffmpeg_dir):
+        src = os.path.join(_ffmpeg_dir, name)
+        if os.path.isfile(src):
+            datas.append((src, "ffmpeg"))   # 落到 dist\LiveBabel\ffmpeg\
+
+# ---- 隐式导入(动态 import,PyInstaller 静态分析抓不到)----
 hiddenimports = (
     collect_submodules("sherpa_onnx")
     + collect_submodules("livebabel")
-    + ["app", "soundfile", "numpy", "requests", "faster_whisper"]
+    + collect_submodules("ctranslate2")
+    + ["app", "soundfile", "numpy", "requests", "faster_whisper", "av",
+       "onnxruntime", "pyaudiowpatch"]
 )
 
 a = Analysis(
     [os.path.join(ROOT, "livebabel_gui.py")],   # 图形化主入口(首页:实时/离线)
-    pathex=[ROOT],                  # 让 livebabel 包可被发现
+    pathex=[ROOT],                  # 让 livebabel 包 + 顶层 app.py 可被发现
     binaries=binaries,
-    datas=[],                       # 模型不打进来(放外部 models\)
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],

@@ -1,13 +1,14 @@
 @echo off
 chcp 65001 >nul
 REM ============================================================
-REM  Build RealtimeSubtitle.exe (CPU). Run in Anaconda Prompt,
-REM  with the "subtitle" env. Models are copied next to the exe.
+REM  Build LiveBabel.exe. Run in Anaconda Prompt with the
+REM  "subtitle" env. ffmpeg is bundled by the spec; models are
+REM  copied next to the exe after build.
 REM ============================================================
 setlocal
 set ENV_NAME=subtitle
 
-REM 切到项目根(本脚本在 packaging\,根是上一级),让 models\ dist\ 在根下解析
+REM Go to project root (this script is in packaging\, root is one up)
 cd /d "%~dp0.."
 
 echo [1/4] Installing PyInstaller ...
@@ -20,16 +21,17 @@ if errorlevel 1 goto err
 
 echo [3/4] Copying models into dist ...
 if exist models (
-    xcopy /E /I /Y models "dist\RealtimeSubtitle\models" >nul
+    xcopy /E /I /Y models "dist\LiveBabel\models" >nul
 ) else (
-    echo   WARNING: models\ not found, copy it into dist\RealtimeSubtitle\ manually.
+    echo   WARNING: models\ not found, copy it into dist\LiveBabel\models\ manually.
 )
 
 echo [4/4] Done.
 echo ============================================================
-echo  Output: dist\RealtimeSubtitle\RealtimeSubtitle.exe
-echo  Double-click to run. On first run, right-click the subtitle
-echo  window -^> "set DeepSeek API Key" to enter your key (saved).
+echo  Output: dist\LiveBabel\LiveBabel.exe
+echo  Distribute the whole dist\LiveBabel\ folder (zip it).
+echo  Users double-click LiveBabel.exe - no Python/CUDA/ffmpeg needed.
+echo  Set DeepSeek API Key on the home screen to enable translation.
 echo ============================================================
 pause
 goto end
