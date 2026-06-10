@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from livebabel.offline.transcribe import transcribe
 from livebabel.offline.translate_batch import translate_sentences
 from livebabel.offline.subtitle_writer import write_srt, write_ass
-from livebabel.offline.burn import burn_subtitle
+from livebabel.offline.burn import burn_subtitle, mux_soft_subtitle
 
 
 def main() -> None:
@@ -36,7 +36,9 @@ def main() -> None:
     p.add_argument("--compute-type", default="auto",
                    help="auto(随设备:GPU=float16,CPU=int8)/ int8 / float16")
     p.add_argument("--no-translate", action="store_true", help="只出原文字幕,不翻译")
-    p.add_argument("--burn", action="store_true", help="把 ASS 字幕硬压进视频")
+    p.add_argument("--sub", choices=["none", "soft", "hard"], default="none",
+                   help="字幕输出:none=仅文件 / soft=软字幕封装(快) / hard=硬烧录(慢)")
+    p.add_argument("--burn", action="store_true", help="(等价 --sub hard)硬压进视频")
     p.add_argument("--out-dir", default=None, help="输出目录(默认与视频同目录)")
     args = p.parse_args()
 
@@ -84,15 +86,20 @@ def main() -> None:
     write_ass(sents, ass_path, bilingual=bilingual)
     print(f"      {srt_path}\n      {ass_path}")
 
-    if args.burn:
+    sub_mode = "hard" if args.burn else args.sub
+    if sub_mode == "hard":
         out_mp4 = os.path.join(out_dir, base + ".bilingual.mp4")
-        print(f"[4/4] 烧录字幕进视频 → {out_mp4} …")
+        print(f"[4/4] 硬烧录字幕进视频 → {out_mp4} …")
         burn_subtitle(args.video, ass_path, out_mp4,
-                      use_gpu=(device == "cuda"),
-                      on_log=lambda m: print(m))
+                      use_gpu=(device == "cuda"), on_log=lambda m: print(m))
+        print("      完成。")
+    elif sub_mode == "soft":
+        out_mkv = os.path.join(out_dir, base + ".softsub.mkv")
+        print(f"[4/4] 封装软字幕 → {out_mkv} …")
+        mux_soft_subtitle(args.video, ass_path, out_mkv, on_log=lambda m: print(m))
         print("      完成。")
     else:
-        print("[4/4] 未烧录(加 --burn 可硬压进视频)")
+        print("[4/4] 仅字幕文件(--sub soft 软字幕 / --sub hard 硬烧录)")
 
 
 if __name__ == "__main__":

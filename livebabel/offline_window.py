@@ -80,7 +80,7 @@ class _Worker(QThread):
         from livebabel.offline.transcribe import transcribe
         from livebabel.offline.translate_batch import translate_sentences
         from livebabel.offline.subtitle_writer import write_srt, write_ass
-        from livebabel.offline.burn import burn_subtitle
+        from livebabel.offline.burn import burn_subtitle, mux_soft_subtitle
 
         video = self.o["video"]
         base = os.path.splitext(os.path.basename(video))[0]
@@ -165,17 +165,26 @@ class _Worker(QThread):
         self.log.emit(f"      {ass_path}")
 
         result = f"字幕已保存到:\n{srt_path}\n{ass_path}"
-        if self.o["burn"]:
+        sub_mode = self.o["sub_mode"]
+        if sub_mode == "hard":
             out_mp4 = os.path.join(out_dir, base + ".bilingual.mp4")
-            self.log.emit(f"[4/4] 烧录字幕进视频 → {out_mp4} …(重编码,请耐心等待)")
-            self.progress.emit(95, "④ 烧录字幕进视频中…")
+            self.log.emit(f"[4/4] 硬烧录字幕进视频 → {out_mp4} …(重编码,请耐心等待)")
+            self.progress.emit(95, "④ 硬烧录字幕进视频中…")
             burn_subtitle(video, ass_path, out_mp4,
                           use_gpu=(self.o["device"] == "cuda"),
                           on_log=self.log.emit)
-            self.log.emit("      烧录完成。")
-            result += f"\n带字幕视频:\n{out_mp4}"
+            self.log.emit("      硬烧录完成。")
+            result += f"\n带字幕视频(硬烧录):\n{out_mp4}"
+        elif sub_mode == "soft":
+            # 软字幕用 mkv 容器对 ASS 兼容最好
+            out_mkv = os.path.join(out_dir, base + ".softsub.mkv")
+            self.log.emit(f"[4/4] 封装软字幕 → {out_mkv} …(不重编码,极快)")
+            self.progress.emit(95, "④ 封装软字幕中…")
+            mux_soft_subtitle(video, ass_path, out_mkv, on_log=self.log.emit)
+            self.log.emit("      软字幕封装完成(播放器里可开关/选轨)。")
+            result += f"\n带字幕视频(软字幕,可开关):\n{out_mkv}"
         else:
-            self.log.emit("[4/4] 未烧录(勾选「烧录进视频」可硬压字幕)")
+            self.log.emit("[4/4] 仅输出字幕文件(未封装进视频)")
 
         self.progress.emit(100, "完成")
         self.done.emit(True, result)
@@ -265,9 +274,23 @@ class OfflineWindow(QWidget):
         # 选项开关
         self.cb_translate = QCheckBox("翻译(关闭则只生成原文字幕)")
         self.cb_translate.setChecked(True)
-        self.cb_burn = QCheckBox("烧录进视频(生成带字幕的新 .mp4,较慢)")
         root.addWidget(self.cb_translate)
-        root.addWidget(self.cb_burn)
+
+        # 字幕输出方式
+        root.addWidget(self._section("字幕输出"))
+        sub_row = QHBoxLayout()
+        self.sub_combo = QComboBox()
+        self.sub_combo.addItems([
+            "仅字幕文件(SRT/ASS,最快)",
+            "软字幕(封装进视频,可开关,秒级)",
+            "硬烧录(焊进画面,任何平台都显示,较慢)",
+        ])
+        sub_row.addWidget(self.sub_combo, 1)
+        root.addLayout(sub_row)
+        self.sub_hint = QLabel("软字幕快但部分平台上传后不显示;硬烧录通用但要重编码")
+        self.sub_hint.setObjectName("subtitle")
+        self.sub_hint.setWordWrap(True)
+        root.addWidget(self.sub_hint)
 
         # 开始 / 取消 按钮
         btn_row = QHBoxLayout()
@@ -349,7 +372,7 @@ class OfflineWindow(QWidget):
             "device": "cuda" if on_gpu else "cpu",
             "compute_type": "float16" if on_gpu else "int8",
             "translate": translate,
-            "burn": self.cb_burn.isChecked(),
+            "sub_mode": ("none", "soft", "hard")[self.sub_combo.currentIndex()],
             "out_dir": None,
             "api_key": self._api_key,
         }
@@ -395,7 +418,7 @@ class OfflineWindow(QWidget):
         self.start_btn.setText("生成中…" if running else "开始生成")
         self.cancel_btn.setEnabled(running)
         for w in (self.path_edit, self.source_combo, self.target_combo,
-                  self.device_combo, self.cb_translate, self.cb_burn):
+                  self.device_combo, self.cb_translate, self.sub_combo):
             w.setEnabled(not running)
 
     def set_api_key(self, key: str) -> None:
