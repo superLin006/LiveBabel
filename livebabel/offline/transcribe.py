@@ -65,7 +65,7 @@ def _cublas_present(dll_dirs: list[str]) -> bool:
 
 def _extract_audio(video_path: str) -> str:
     """用 ffmpeg 把视频音轨提取成 16k mono wav(faster-whisper 喜欢的格式)到临时文件。"""
-    from livebabel.ffmpeg_tool import find_ffmpeg
+    from livebabel.ffmpeg_tool import find_ffmpeg, run_hidden
     ffmpeg = find_ffmpeg()
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
@@ -75,7 +75,7 @@ def _extract_audio(video_path: str) -> str:
         "-vn", "-ac", "1", "-ar", "16000", "-f", "wav",
         tmp.name,
     ]
-    proc = subprocess.run(cmd, capture_output=True)
+    proc = run_hidden(cmd, capture_output=True)
     if proc.returncode != 0:
         raise RuntimeError(
             f"ffmpeg 提取音轨失败:\n{proc.stderr.decode(errors='replace')}"

@@ -15,7 +15,8 @@ import subprocess
 
 
 def _run(cmd) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True)
+    from livebabel.ffmpeg_tool import run_hidden
+    return run_hidden(cmd, capture_output=True)
 
 
 def burn_subtitle(

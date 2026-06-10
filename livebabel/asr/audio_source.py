@@ -50,7 +50,7 @@ class FileSource(AudioSource):
 
     def _decode(self) -> np.ndarray:
         """用 ffmpeg 把任意输入解码成 16k mono float32。"""
-        from livebabel.ffmpeg_tool import find_ffmpeg
+        from livebabel.ffmpeg_tool import find_ffmpeg, run_hidden
         cmd = [
             find_ffmpeg(), "-nostdin", "-loglevel", "error",
             "-i", self.path,
@@ -58,7 +58,7 @@ class FileSource(AudioSource):
             "-ac", "1", "-ar", str(SAMPLE_RATE),
             "pipe:1",
         ]
-        proc = subprocess.run(cmd, capture_output=True)
+        proc = run_hidden(cmd, capture_output=True)
         if proc.returncode != 0:
             raise RuntimeError(
                 f"ffmpeg decode failed for {self.path}:\n"

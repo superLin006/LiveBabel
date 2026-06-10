@@ -12,9 +12,22 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 
 from livebabel.paths import res
+
+
+def run_hidden(cmd, **kwargs) -> "subprocess.CompletedProcess":
+    """像 subprocess.run 一样跑命令,但在 Windows GUI 程序里不弹黑色控制台窗。
+
+    打包成无控制台的 GUI(console=False)后,调用 ffmpeg 这类控制台程序时
+    Windows 会给它新开一个控制台窗一闪/常驻。加 CREATE_NO_WINDOW 抑制掉。
+    非 Windows 无影响。
+    """
+    if sys.platform.startswith("win"):
+        kwargs.setdefault("creationflags", 0x08000000)  # CREATE_NO_WINDOW
+    return subprocess.run(cmd, **kwargs)
 
 
 def find_ffmpeg() -> str:
@@ -23,11 +36,23 @@ def find_ffmpeg() -> str:
     if env and os.path.isfile(env):
         return env
 
-    # 2) 项目目录 ffmpeg/(支持 ffmpeg.exe / ffmpeg/bin/ffmpeg.exe)
+    # 2) 随程序分发的 ffmpeg。覆盖多种落点:
+    #    - 源码运行:项目根 ffmpeg\
+    #    - 打包(PyInstaller onedir):较新版本把数据放在 exe 旁的 _internal\,
+    #      旧版本放 exe 同级;onefile 解压到 _MEIPASS。都纳入搜索。
     exe = "ffmpeg.exe" if sys.platform.startswith("win") else "ffmpeg"
-    for cand in (res("ffmpeg", exe), res("ffmpeg", "bin", exe)):
-        if os.path.isfile(cand):
-            return cand
+    roots = [res()]                       # app_dir():源码=项目根,打包=exe 目录
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        roots.append(meipass)
+    if getattr(sys, "frozen", False):
+        roots.append(os.path.join(os.path.dirname(sys.executable), "_internal"))
+    for root in roots:
+        for cand in (os.path.join(root, "ffmpeg", exe),
+                     os.path.join(root, "ffmpeg", "bin", exe),
+                     os.path.join(root, exe)):
+            if os.path.isfile(cand):
+                return cand
 
     # 3) 系统 PATH
     found = shutil.which("ffmpeg")
