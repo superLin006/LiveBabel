@@ -28,6 +28,10 @@ venv/
 overlay_preview.png
 overlay_toolbar.png
 
+# 测试媒体(本地素材,不入库)
+test-*.mp4
+*.bilingual.mp4
+
 # 编辑器/系统
 .vscode/
 .idea/

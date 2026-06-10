@@ -8,7 +8,9 @@ faster-whisper 基于 CTranslate2,不依赖 torch,速度快、内存省,支持 9
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from typing import List, Optional
@@ -20,6 +22,45 @@ class Sentence:
     end: float            # 结束秒
     text: str             # 识别原文
     translation: Optional[str] = None   # 译文(翻译阶段填入)
+
+
+def detect_device() -> tuple[str, str]:
+    """自动探测识别设备:有可用 CUDA 显卡且运行时库齐全就用 GPU,否则回退 CPU。
+
+    返回 (device, compute_type):
+      * GPU 可用 → ("cuda", "float16")
+      * 否则     → ("cpu", "int8")
+
+    探测靠 CTranslate2 自报 CUDA 设备数。Windows 上还需 cuBLAS/cuDNN 的 DLL
+    可加载,否则虽有显卡也跑不起来(报 cublas64_12.dll not found)——所以先注册
+    DLL 目录,有显卡时再粗略检查这些库在不在,缺则当作没 GPU。任何异常都安全回退 CPU。
+    """
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() <= 0:
+            return "cpu", "int8"
+        # Windows:确保 cuBLAS/cuDNN DLL 能被找到,否则别误判为可用 GPU
+        if sys.platform.startswith("win"):
+            from livebabel.offline.cuda_dll import ensure_cuda_dlls
+            added = ensure_cuda_dlls()
+            if not _cublas_present(added):
+                return "cpu", "int8"
+        return "cuda", "float16"
+    except Exception:
+        return "cpu", "int8"
+
+
+def _cublas_present(dll_dirs: list[str]) -> bool:
+    """粗略判断 cublas64_12.dll 是否存在(注册目录里或系统里)。仅 Windows 用。"""
+    import glob
+    for d in dll_dirs:
+        if glob.glob(os.path.join(d, "cublas64_*.dll")):
+            return True
+    # 也可能装在 CUDA Toolkit / 系统 PATH 里
+    for p in os.environ.get("PATH", "").split(os.pathsep):
+        if p and glob.glob(os.path.join(p, "cublas64_*.dll")):
+            return True
+    return False
 
 
 def _extract_audio(video_path: str) -> str:
@@ -57,6 +98,13 @@ def transcribe(
     on_progress(done_seconds, total_seconds): 可选进度回调。
     """
     import os
+
+    # Windows 上先把 cuBLAS/cuDNN 的 DLL 目录注册进搜索路径(GPU 模式必须,否则
+    # 报 "cublas64_12.dll is not found");Linux/WSL 无操作。
+    if device == "cuda":
+        from livebabel.offline.cuda_dll import ensure_cuda_dlls
+        ensure_cuda_dlls()
+
     from faster_whisper import WhisperModel
 
     # 优先用本地模型目录(models/faster-whisper-large-v3-turbo),没放才按名字自动下载

@@ -21,11 +21,11 @@ binaries = collect_dynamic_libs("sherpa_onnx")
 hiddenimports = (
     collect_submodules("sherpa_onnx")
     + collect_submodules("livebabel")
-    + ["soundfile", "numpy", "requests"]
+    + ["app", "soundfile", "numpy", "requests", "faster_whisper"]
 )
 
 a = Analysis(
-    [os.path.join(ROOT, "app.py")],
+    [os.path.join(ROOT, "livebabel_gui.py")],   # 图形化主入口(首页:实时/离线)
     pathex=[ROOT],                  # 让 livebabel 包可被发现
     binaries=binaries,
     datas=[],                       # 模型不打进来(放外部 models\)
@@ -43,7 +43,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="RealtimeSubtitle",
+    name="LiveBabel",
     console=False,                  # 无黑窗(GUI 程序)
     icon=None,
 )
@@ -52,5 +52,5 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    name="RealtimeSubtitle",
+    name="LiveBabel",
 )

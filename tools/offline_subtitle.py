@@ -32,8 +32,9 @@ def main() -> None:
     p.add_argument("--source-lang", default=None,
                    help="源语言代码(如 en/zh/ja),不填则自动检测")
     p.add_argument("--model", default="large-v3-turbo", help="whisper 模型")
-    p.add_argument("--device", default="cpu", help="cpu 或 cuda")
-    p.add_argument("--compute-type", default="int8", help="int8(CPU)/ float16(GPU)")
+    p.add_argument("--device", default="auto", help="auto(自动检测)/ cpu / cuda")
+    p.add_argument("--compute-type", default="auto",
+                   help="auto(随设备:GPU=float16,CPU=int8)/ int8 / float16")
     p.add_argument("--no-translate", action="store_true", help="只出原文字幕,不翻译")
     p.add_argument("--burn", action="store_true", help="把 ASS 字幕硬压进视频")
     p.add_argument("--out-dir", default=None, help="输出目录(默认与视频同目录)")
@@ -41,6 +42,18 @@ def main() -> None:
 
     if not os.path.isfile(args.video):
         raise SystemExit(f"找不到文件:{args.video}")
+
+    # 自动探测设备:有 GPU 走 cuda+float16,否则 cpu+int8
+    from livebabel.offline.transcribe import detect_device
+    auto = args.device == "auto"
+    if auto:
+        device, auto_ct = detect_device()
+    else:
+        device = args.device
+        auto_ct = "float16" if device == "cuda" else "int8"
+    compute_type = auto_ct if args.compute_type == "auto" else args.compute_type
+    print(f"[设备] {device} ({compute_type})"
+          + ("  ← 自动检测到 GPU" if auto and device == "cuda" else ""))
 
     base = os.path.splitext(os.path.basename(args.video))[0]
     out_dir = args.out_dir or os.path.dirname(os.path.abspath(args.video))
@@ -53,7 +66,7 @@ def main() -> None:
         pct = 100 * done / total if total else 0
         print(f"\r      {done:6.1f}/{total:.1f}s ({pct:4.1f}%)", end="", file=sys.stderr)
     sents = transcribe(args.video, model_size=args.model, language=args.source_lang,
-                       device=args.device, compute_type=args.compute_type, on_progress=prog)
+                       device=device, compute_type=compute_type, on_progress=prog)
     print(f"\n      识别完成,共 {len(sents)} 句。")
 
     if not args.no_translate:

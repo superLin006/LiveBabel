@@ -80,9 +80,13 @@ class SubtitleOverlay(QWidget):
     lang_changed = Signal(str)    # 通知 app 层切换翻译目标语种
     pause_toggled = Signal(bool)  # True=暂停,False=继续
     api_key_changed = Signal(str) # 设置了新的 DeepSeek key
+    closed = Signal()             # 窗口被退出(供启动器停掉后台线程)
 
-    def __init__(self) -> None:
+    def __init__(self, standalone: bool = True) -> None:
         super().__init__()
+        # standalone=True(app.py 直接运行):退出即结束整个程序。
+        # standalone=False(从图形启动器拉起):退出只关本窗口,启动器主页继续运行。
+        self._standalone = standalone
         self.s = load_settings()
         self._drag_pos: Optional[QPoint] = None
 
@@ -398,4 +402,8 @@ class SubtitleOverlay(QWidget):
 
     def _quit(self) -> None:
         self._save_geo()
-        QApplication.quit()
+        self.closed.emit()
+        if self._standalone:
+            QApplication.quit()
+        else:
+            self.close()

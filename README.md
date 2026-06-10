@@ -33,16 +33,27 @@ pip install -r requirements.txt
 # 2. 下载模型(约 570MB,放到 models/)
 packaging\download_models.bat
 
-# 3. 运行(在项目根目录)
-python app.py
+# 3. 运行图形主入口(在项目根目录)
+python livebabel_gui.py
 ```
 
-首次运行:**右键悬浮窗 → 设置 DeepSeek API Key**(保存在本地 settings.json)。
-然后播放任意视频/直播即可看到双语字幕。
+打开后是一个**主页**,选「实时模式」或「离线模式」即可,新手无需记命令。
+底部可一次性设置 **DeepSeek API Key**(保存在本地 settings.json,两个模式共用)。
 
-> 切换音频输出设备(如插耳机)后,重启程序以重新抓取当前默认设备。
+- **实时模式**:抓系统声音,弹出透明悬浮字幕窗;右键悬浮窗可调字号/语种/退出。
+- **离线模式**:选视频 → 选语言/设备 → 一键生成双语 SRT/ASS,可勾选烧录进视频。
 
-也可用一键脚本:`packaging\setup_windows.bat`(建环境装依赖)→ `packaging\run_windows.bat`(启动)。
+> 切换音频输出设备(如插耳机)后,重启实时模式以重新抓取当前默认设备。
+
+也可用一键脚本:`packaging\setup_windows.bat`(建环境装依赖)→ `packaging\run_gui.bat`(图形主入口)。
+
+<details><summary>高级:纯命令行入口(进阶用户)</summary>
+
+```bash
+python app.py                         # 直接启动实时悬浮窗(无主页)
+python tools/offline_subtitle.py 视频.mp4 --lang 中文 --burn   # 命令行离线字幕
+```
+</details>
 
 ### 打包成 exe
 
