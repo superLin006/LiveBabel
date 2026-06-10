@@ -87,7 +87,9 @@ def main() -> None:
     if args.burn:
         out_mp4 = os.path.join(out_dir, base + ".bilingual.mp4")
         print(f"[4/4] 烧录字幕进视频 → {out_mp4} …")
-        burn_subtitle(args.video, ass_path, out_mp4)
+        burn_subtitle(args.video, ass_path, out_mp4,
+                      use_gpu=(device == "cuda"),
+                      on_log=lambda m: print(m))
         print("      完成。")
     else:
         print("[4/4] 未烧录(加 --burn 可硬压进视频)")

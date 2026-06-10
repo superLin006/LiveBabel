@@ -167,9 +167,11 @@ class _Worker(QThread):
         result = f"字幕已保存到:\n{srt_path}\n{ass_path}"
         if self.o["burn"]:
             out_mp4 = os.path.join(out_dir, base + ".bilingual.mp4")
-            self.log.emit(f"[4/4] 烧录字幕进视频 → {out_mp4} …(逐帧重编码,较慢,请耐心等待)")
-            self.progress.emit(95, "④ 烧录字幕进视频中…(较慢)")
-            burn_subtitle(video, ass_path, out_mp4)
+            self.log.emit(f"[4/4] 烧录字幕进视频 → {out_mp4} …(重编码,请耐心等待)")
+            self.progress.emit(95, "④ 烧录字幕进视频中…")
+            burn_subtitle(video, ass_path, out_mp4,
+                          use_gpu=(self.o["device"] == "cuda"),
+                          on_log=self.log.emit)
             self.log.emit("      烧录完成。")
             result += f"\n带字幕视频:\n{out_mp4}"
         else:

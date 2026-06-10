@@ -173,3 +173,23 @@ def apply_app_theme(app) -> None:
     pal.setColor(QPalette.Disabled, QPalette.ButtonText, c(SUBTEXT))
     app.setPalette(pal)
     app.setStyleSheet(STYLESHEET)
+
+    # 全局事件过滤器:任何新顶层窗口(含临时弹窗)显示时自动套深色标题栏
+    import sys as _sys
+    if _sys.platform.startswith("win"):
+        from PySide6.QtCore import QObject, QEvent
+
+        class _DarkTitleFilter(QObject):
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Show:
+                    try:
+                        from PySide6.QtWidgets import QWidget
+                        if isinstance(obj, QWidget) and obj.isWindow():
+                            enable_dark_titlebar(obj)
+                    except Exception:
+                        pass
+                return False
+
+        f = _DarkTitleFilter(app)
+        app.installEventFilter(f)
+        app._dark_title_filter = f   # 防被 GC
