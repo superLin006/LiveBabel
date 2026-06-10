@@ -190,7 +190,15 @@ class OfflineWindow(QWidget):
         self.setWindowTitle("LiveBabel · 离线字幕")
         self.resize(620, 640)
         apply_theme(self)
+        self._dark_titlebar_done = False
         self._build()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not self._dark_titlebar_done:
+            self._dark_titlebar_done = True
+            from livebabel.gui_common import enable_dark_titlebar
+            enable_dark_titlebar(self)
 
     # ---- UI ----
 

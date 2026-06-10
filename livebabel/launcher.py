@@ -95,7 +95,15 @@ class Launcher(QWidget):
         self.setWindowTitle("LiveBabel")
         self.resize(560, 460)
         apply_theme(self)
+        self._dark_titlebar_done = False
         self._build()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not self._dark_titlebar_done:
+            self._dark_titlebar_done = True
+            from livebabel.gui_common import enable_dark_titlebar
+            enable_dark_titlebar(self)
 
     def _build(self) -> None:
         root = QVBoxLayout(self)

@@ -120,6 +120,31 @@ def apply_theme(widget) -> None:
     widget.setStyleSheet(STYLESHEET)
 
 
+def enable_dark_titlebar(widget) -> None:
+    """把 Windows 系统标题栏 + 窗口边框改成深色(消除顶部/四周白边)。
+
+    用 DWM 的 DWMWA_USE_IMMERSIVE_DARK_MODE 属性。仅 Windows 10 1809+ 生效,
+    其它平台或调用失败都安全跳过。须在窗口已创建原生句柄后调用(show 之后,
+    或先 winId() 触发句柄创建)。
+    """
+    import sys
+    if not sys.platform.startswith("win"):
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        hwnd = int(widget.winId())
+        dwm = ctypes.windll.dwmapi
+        val = ctypes.c_int(1)   # 1 = 开启深色
+        # 20 = DWMWA_USE_IMMERSIVE_DARK_MODE(老系统是 19,两个都试)
+        for attr in (20, 19):
+            dwm.DwmSetWindowAttribute(
+                wintypes.HWND(hwnd), ctypes.c_uint(attr),
+                ctypes.byref(val), ctypes.sizeof(val))
+    except Exception:
+        pass
+
+
 def apply_app_theme(app) -> None:
     """给整个 QApplication 套深色调色板 + 全局样式。
 
