@@ -93,26 +93,26 @@ def main() -> None:
 
     # 多尺寸合成 .ico(Windows 图标 / 任务栏 / exe)
     sizes = [16, 24, 32, 48, 64, 128, 256]
-    imgs = [render(n) for n in sizes]
     ico_path = os.path.join(out_dir, "icon.ico")
-    # QImage 不能直接写多帧 ico;用 Pillow 合成(若无 Pillow 则退化为单尺寸 png 重命名提示)
+    # 用 Pillow 写多尺寸 ico。关键:必须从【最大】尺寸的图作为基准保存,并用 sizes
+    # 列出全部目标尺寸,Pillow 才会把各尺寸都写进去;若从小图保存会被截到小尺寸
+    # (之前的 bug:从 16×16 保存导致 ico 只含 16×16,大图标视图显示不出)。
     try:
         from PIL import Image
         import io
-        pil_imgs = []
-        for im in imgs:
-            # QImage -> bytes(PNG) -> PIL
-            from PySide6.QtCore import QBuffer, QByteArray
-            ba = QByteArray()
-            qb = QBuffer(ba)
-            qb.open(QBuffer.WriteOnly)
-            im.save(qb, "PNG")
-            pil_imgs.append(Image.open(io.BytesIO(bytes(ba))).convert("RGBA"))
-        pil_imgs[0].save(ico_path, format="ICO",
-                         sizes=[(n, n) for n in sizes],
-                         append_images=pil_imgs[1:])
+        from PySide6.QtCore import QBuffer, QByteArray
+
+        def to_pil(qimg):
+            ba = QByteArray(); qb = QBuffer(ba); qb.open(QBuffer.WriteOnly)
+            qimg.save(qb, "PNG")
+            return Image.open(io.BytesIO(bytes(ba))).convert("RGBA")
+
+        base = to_pil(render(256))   # 最大尺寸作基准
+        base.save(ico_path, format="ICO", sizes=[(n, n) for n in sizes])
+        # 校验
+        chk = Image.open(ico_path)
         print(f"已生成: {png_path}")
-        print(f"已生成: {ico_path}")
+        print(f"已生成: {ico_path}  (含尺寸: {sorted(chk.info.get('sizes', set()))})")
     except ImportError:
         print(f"已生成: {png_path}")
         print("提示: 未装 Pillow,跳过 .ico 生成(pip install pillow 后重跑可出图标)")
