@@ -275,6 +275,13 @@ def _start_live_overlay(api_key: str):
             translator.submit(seg.id, seg.text, quick=True)
     overlay.lang_changed.connect(on_lang_changed)
 
+    # 「总结」按钮:取本场转录 → DeepSeek 摘要 → 弹窗展示
+    from livebabel.summary_window import wire_summarize
+    wire_summarize(
+        overlay, manager,
+        lambda: (overlay.s.get("api_key", "") or os.environ.get("DEEPSEEK_API_KEY", "")).strip(),
+    )
+
     stopped = {"v": False}
     paused = {"v": False}
     overlay.pause_toggled.connect(lambda p: paused.__setitem__("v", p))

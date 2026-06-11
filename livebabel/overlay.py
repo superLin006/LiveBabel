@@ -81,6 +81,7 @@ class SubtitleOverlay(QWidget):
     pause_toggled = Signal(bool)  # True=暂停,False=继续
     api_key_changed = Signal(str) # 设置了新的 DeepSeek key
     closed = Signal()             # 窗口被退出(供启动器停掉后台线程)
+    summarize_requested = Signal(str)  # 请求总结本场内容,参数为风格 structured/brief
 
     def __init__(self, standalone: bool = True) -> None:
         super().__init__()
@@ -236,6 +237,12 @@ class SubtitleOverlay(QWidget):
         self._cmb_lang.currentTextChanged.connect(self._set_lang)
         h.addWidget(self._cmb_lang)
 
+        # 总结:把本场识别内容发 DeepSeek 出摘要(默认结构化纪要;按右键菜单可选简洁)
+        self._btn_sum = QPushButton("总结")
+        self._btn_sum.setStyleSheet(btn_css)
+        self._btn_sum.clicked.connect(lambda: self.summarize_requested.emit("structured"))
+        h.addWidget(self._btn_sum)
+
         h.addStretch(1)
 
         btn_quit = QPushButton("✕")
@@ -296,6 +303,14 @@ class SubtitleOverlay(QWidget):
         m.addAction(a_lock)
 
         m.addSeparator()
+        sum_menu = m.addMenu("总结本场内容")
+        a_struct = QAction("结构化纪要", self)
+        a_struct.triggered.connect(lambda: self.summarize_requested.emit("structured"))
+        sum_menu.addAction(a_struct)
+        a_brief = QAction("简洁要点", self)
+        a_brief.triggered.connect(lambda: self.summarize_requested.emit("brief"))
+        sum_menu.addAction(a_brief)
+
         a_key = QAction("设置 DeepSeek API Key…", self)
         a_key.triggered.connect(self._edit_api_key)
         m.addAction(a_key)

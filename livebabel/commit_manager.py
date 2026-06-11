@@ -136,3 +136,13 @@ class CommitManager:
         with self._lock:
             committed = [s for s in self._segments if s.committed]
             return committed[-n_committed:], self._volatile
+
+    def transcript(self) -> list[str]:
+        """本场已最终定稿(非临时)的原文,按出现顺序。供会议总结用。
+
+        只取 committed 且非 provisional 的段:临时子句会被最终段替换,
+        若它们还在(段未结束)也算未定稿,不纳入,避免重复/半句进总结。
+        """
+        with self._lock:
+            return [s.text for s in self._segments
+                    if s.committed and not s.provisional and s.text.strip()]
