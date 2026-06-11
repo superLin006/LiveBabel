@@ -35,6 +35,9 @@ def detect_device() -> tuple[str, str]:
     可加载,否则虽有显卡也跑不起来(报 cublas64_12.dll not found)——所以先注册
     DLL 目录,有显卡时再粗略检查这些库在不在,缺则当作没 GPU。任何异常都安全回退 CPU。
     """
+    # 纯 CPU 版打包用此开关强制 CPU(即使机器有 GPU 也不尝试,避免找没打包的 GPU 库)
+    if os.environ.get("LIVEBABEL_CPU_ONLY", "").strip() in ("1", "true", "True"):
+        return "cpu", "int8"
     try:
         import ctranslate2
         if ctranslate2.get_cuda_device_count() <= 0:
