@@ -17,6 +17,8 @@ class Utterance:
     t: float                 # 相对会议开始的秒数
     speaker: str             # 说话人标签("我" / "远端" / 重命名后的真名)
     text: str
+    is_me: bool = False      # 是否本机用户("我"那一路),供 UI 气泡左右/配色
+    draft: bool = False      # 是否未定稿草稿(zipformer 实时文本,浅色)
 
 
 class MeetingRecorder:
@@ -26,19 +28,41 @@ class MeetingRecorder:
         self._t0 = time.time()
         # 说话人重命名映射:原始标签 -> 显示名
         self._rename: dict[str, str] = {}
+        # 每个说话人当前未定稿的草稿(zipformer 实时文本),定稿时清空
+        self._drafts: dict[str, str] = {}
 
     def reset(self) -> None:
         with self._lock:
             self._items.clear()
             self._rename.clear()
+            self._drafts.clear()
             self._t0 = time.time()
 
     def add(self, speaker: str, text: str) -> None:
+        """定稿一条(SenseVoice 最终文本):入正式列表,并清掉该说话人的草稿。"""
         text = text.strip()
         if not text:
             return
         with self._lock:
             self._items.append(Utterance(t=time.time() - self._t0, speaker=speaker, text=text))
+            self._drafts.pop(speaker, None)
+
+    def set_draft(self, speaker: str, text: str) -> None:
+        """更新某说话人的实时草稿(zipformer volatile/provisional)。空文本清除。"""
+        with self._lock:
+            text = text.strip()
+            if text:
+                self._drafts[speaker] = text
+            else:
+                self._drafts.pop(speaker, None)
+
+    def drafts(self) -> List[Utterance]:
+        """当前各说话人的草稿(应用重命名),供 UI 显示浅色气泡。"""
+        with self._lock:
+            now = time.time() - self._t0
+            return [Utterance(t=now, speaker=self._disp(spk), text=txt,
+                              is_me=(spk == "我"), draft=True)
+                    for spk, txt in self._drafts.items()]
 
     def rename(self, original: str, display: str) -> None:
         with self._lock:
@@ -48,19 +72,24 @@ class MeetingRecorder:
         return self._rename.get(spk, spk)
 
     def speakers(self) -> List[str]:
-        """出现过的原始说话人标签(按首次出现顺序)。"""
+        """出现过的原始说话人标签(含仅有草稿的,按首次出现顺序)。"""
         with self._lock:
             seen, out = set(), []
             for u in self._items:
                 if u.speaker not in seen:
                     seen.add(u.speaker)
                     out.append(u.speaker)
+            for spk in self._drafts:
+                if spk not in seen:
+                    seen.add(spk)
+                    out.append(spk)
             return out
 
     def segments(self) -> List[Utterance]:
-        """副本(应用重命名),供 UI / 导出。"""
+        """已定稿条目副本(应用重命名),供 UI / 导出。"""
         with self._lock:
-            return [Utterance(t=u.t, speaker=self._disp(u.speaker), text=u.text)
+            return [Utterance(t=u.t, speaker=self._disp(u.speaker), text=u.text,
+                              is_me=(u.speaker == "我"))
                     for u in self._items]
 
     def is_empty(self) -> bool:

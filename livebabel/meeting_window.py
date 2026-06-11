@@ -26,28 +26,38 @@ from livebabel.meeting.recorder import MeetingRecorder
 _SPK_COLORS = ["#2C5C68", "#3A3D48", "#4A3A5A", "#3A4A38", "#5A4A38"]
 
 
-def _bubble_widget(speaker: str, ts: str, text: str, is_me: bool) -> QWidget:
-    """一条聊天气泡:我→右侧青色,其他→左侧灰色,顶部小字显示 说话人·时间。"""
+def _bubble_widget(speaker: str, ts: str, text: str, is_me: bool, draft: bool = False) -> QWidget:
+    """一条聊天气泡:我→右侧青色,其他→左侧灰色,顶部小字显示 说话人·时间。
+
+    draft=True 为未定稿草稿:气泡半透明、文字偏暗、末尾加"…",定稿后会被正式气泡替换。
+    """
     row = QWidget()
     h = QHBoxLayout(row)
     h.setContentsMargins(8, 3, 8, 3)
 
     bubble = QFrame()
     bubble.setObjectName("bubble")
-    color = ACCENT_DEEP if is_me else CARD_HOVER
-    fg = "#08222A" if is_me else "#E8E9ED"
-    sub = "#0A2A33" if is_me else SUBTEXT
+    if draft:
+        # 草稿:统一暗灰半透明,区别于定稿
+        color = "#33363F"
+        fg = "#AEB4C0"
+        sub = SUBTEXT
+    else:
+        color = ACCENT_DEEP if is_me else CARD_HOVER
+        fg = "#08222A" if is_me else "#E8E9ED"
+        sub = "#0A2A33" if is_me else SUBTEXT
     bubble.setStyleSheet(
         f"#bubble{{background:{color};border-radius:10px;}}"
     )
     bv = QVBoxLayout(bubble)
     bv.setContentsMargins(12, 7, 12, 8)
     bv.setSpacing(2)
-    head = QLabel(f"{speaker} · {ts}")
+    head = QLabel(f"{speaker} · {ts}" + ("  ✎" if draft else ""))
     head.setStyleSheet(f"color:{sub};font-size:11px;background:transparent;")
-    body = QLabel(text)
+    body = QLabel(text + (" …" if draft else ""))
     body.setWordWrap(True)
-    body.setStyleSheet(f"color:{fg};font-size:13px;background:transparent;")
+    body.setStyleSheet(f"color:{fg};font-size:13px;background:transparent;"
+                       + ("font-style:italic;" if draft else ""))
     body.setMaximumWidth(420)
     bv.addWidget(head)
     bv.addWidget(body)
@@ -171,7 +181,8 @@ class MeetingWindow(QWidget):
         self.transcript_list.setSelectionMode(QListWidget.NoSelection)
         self.transcript_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
         root.addWidget(self.transcript_list, 3)
-        self._bubble_count = 0   # 已渲染的气泡数(增量刷新用)
+        self._bubble_count = 0   # 已渲染的定稿气泡数(增量刷新用)
+        self._draft_items = 0    # 当前末尾的草稿气泡数
 
         # 纪要:标题行带风格选择 + 生成按钮
         m_head = QHBoxLayout()
@@ -252,6 +263,7 @@ class MeetingWindow(QWidget):
         self.recorder.reset()
         self.transcript_list.clear()
         self._bubble_count = 0
+        self._draft_items = 0
         self.status.setText("正在加载模型并录制…(首次稍慢)")
         self.pipeline = MeetingPipeline(
             self.recorder, on_update=self.bridge.transcript_dirty.emit,
@@ -302,17 +314,34 @@ class MeetingWindow(QWidget):
             self._refresh_transcript()
 
     def _refresh_transcript(self) -> None:
-        """增量渲染聊天气泡:只为新增的发言追加气泡(不重建,避免闪烁/卡顿)。"""
+        """定稿气泡增量追加(稳定不闪);草稿气泡每次刷新重建并置于末尾(浅色,会变)。"""
+        lst = self.transcript_list
+        # 1) 先移除上次的草稿气泡(它们在列表尾部)
+        for _ in range(getattr(self, "_draft_items", 0)):
+            it = lst.takeItem(lst.count() - 1)
+            del it
+        self._draft_items = 0
+
+        # 2) 增量追加新定稿
         segs = self.recorder.segments()
         for u in segs[self._bubble_count:]:
-            is_me = (u.speaker == "我")
-            w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t), u.text, is_me)
-            item = QListWidgetItem(self.transcript_list)
+            w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t), u.text, u.is_me)
+            item = QListWidgetItem(lst)
             item.setSizeHint(w.sizeHint())
-            self.transcript_list.addItem(item)
-            self.transcript_list.setItemWidget(item, w)
+            lst.addItem(item)
+            lst.setItemWidget(item, w)
         self._bubble_count = len(segs)
-        self.transcript_list.scrollToBottom()
+
+        # 3) 末尾追加当前草稿(每路至多一条,浅色)
+        for u in self.recorder.drafts():
+            w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t), u.text, u.is_me, draft=True)
+            item = QListWidgetItem(lst)
+            item.setSizeHint(w.sizeHint())
+            lst.addItem(item)
+            lst.setItemWidget(item, w)
+            self._draft_items += 1
+
+        lst.scrollToBottom()
 
     # ---- 说话人重命名 ----
 
@@ -332,6 +361,7 @@ class MeetingWindow(QWidget):
             # 重命名影响已有气泡 → 全量重建
             self.transcript_list.clear()
             self._bubble_count = 0
+            self._draft_items = 0
             self._refresh_transcript()
 
     # ---- 纪要 ----

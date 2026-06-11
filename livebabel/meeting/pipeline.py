@@ -16,14 +16,17 @@ from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 def _run_stream(source, asr: VadTwoPassAsr, speaker: str, recorder,
                 stop_flag: Callable[[], bool], on_update: Callable[[], None]) -> None:
-    """跑一路音频源 → ASR,final 文本写进 recorder 并标上 speaker。"""
+    """跑一路音频源 → ASR:volatile/provisional 作实时草稿,final 定稿入记录。"""
     def handle(evt):
-        # 会议记录只要最终定稿文本;临时/草稿不进会议纪要(避免重复半句)
         if evt.kind == "final":
             text = evt.text.strip()
             if text:
-                recorder.add(speaker, text)
+                recorder.add(speaker, text)   # 定稿:入正式列表 + 清该说话人草稿
                 on_update()
+        elif evt.kind in ("volatile", "provisional"):
+            # zipformer 实时草稿:浅色显示,会被刷新/最终替换,不进纪要
+            recorder.set_draft(speaker, evt.text)
+            on_update()
 
     try:
         for chunk in source.frames():
