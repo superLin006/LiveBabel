@@ -131,6 +131,7 @@ class VadTwoPassAsr:
                  provider: str = "auto") -> None:
         # provider: "auto"(默认,检测到 onnxruntime-gpu 的 CUDA provider 就用 cuda,
         # 否则 cpu)/ "cpu" / "cuda"。装了 onnxruntime-gpu + N 卡即自动 GPU 加速。
+        import sys as _sys
         self.provider = detect_provider() if provider == "auto" else provider
         # GPU 模式:先注册/预加载 cuBLAS/cuDNN DLL,否则 sherpa 的 CUDA provider 会因
         # 找不到 cublasLt64_12.dll 等而加载失败。与离线 faster-whisper 复用同一套逻辑。
@@ -140,13 +141,21 @@ class VadTwoPassAsr:
                 ensure_cuda_dlls()
             except Exception:
                 pass
-        import sys as _sys
+
+        # 构建三个模型。GPU 构建若失败(如缺 cuDNN、provider 加载失败),
+        # 自动回退 CPU 重建,保证一定能跑起来而不是直接报错。
+        try:
+            self._build_models(first_dir, second_dir, num_threads)
+        except Exception as e:
+            if self.provider == "cuda":
+                print(f"[asr] GPU 初始化失败({type(e).__name__}: {e}),回退 CPU",
+                      file=_sys.stderr)
+                self.provider = "cpu"
+                self._build_models(first_dir, second_dir, num_threads)
+            else:
+                raise
         print(f"[asr] 实时识别使用 {'GPU(CUDA)' if self.provider == 'cuda' else 'CPU'}",
               file=_sys.stderr)
-        self.first = self._build_first(first_dir, num_threads)
-        self.second = self._build_second(second_dir, num_threads)
-        self.vad = self._build_vad(num_threads)
-        self.stream = self.first.create_stream()
         self._committed_count = 0
         # 段内提前翻译:provisional=False 则完全关闭(只在段结束时整段翻译)
         self.provisional = provisional
@@ -157,6 +166,13 @@ class VadTwoPassAsr:
         self._utt_had_prov = False      # 当前段是否出过临时子句(决定段尾是否要替换)
 
     # ---------- 构建 ----------
+
+    def _build_models(self, first_dir: str, second_dir: str, nt: int) -> None:
+        """按当前 self.provider 构建三个模型 + 流。GPU 失败时由 __init__ 改 cpu 重调。"""
+        self.first = self._build_first(first_dir, nt)
+        self.second = self._build_second(second_dir, nt)
+        self.vad = self._build_vad(nt)
+        self.stream = self.first.create_stream()
 
     def _build_first(self, d: str, nt: int) -> sherpa_onnx.OnlineRecognizer:
         return sherpa_onnx.OnlineRecognizer.from_transducer(
