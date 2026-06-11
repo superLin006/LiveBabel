@@ -199,11 +199,9 @@ class Launcher(QWidget):
         """启动实时悬浮窗。复用 app.py 的流水线;悬浮窗为独立顶层窗,与本启动器共存。"""
         if self._live_thread is not None:
             # 已经起过:提示用户悬浮窗就在桌面上(可能被其他窗口盖住)
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self, "实时模式已在运行",
-                "实时悬浮字幕已经启动,请在桌面上查看(默认在屏幕下方)。",
-            )
+            from livebabel.gui_common import info
+            info(self, "实时模式已在运行",
+                 "实时悬浮字幕已经启动,请在桌面上查看(默认在屏幕下方)。")
             return
         try:
             worker, overlay = _start_live_overlay(self._effective_key())
@@ -211,12 +209,10 @@ class Launcher(QWidget):
             # 悬浮窗退出后允许再次启动实时模式
             overlay.closed.connect(self._on_live_closed)
         except Exception as e:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self, "启动失败",
-                f"实时模式启动失败:\n{type(e).__name__}: {e}\n\n"
-                "请确认已安装系统音频采集依赖(pyaudiowpatch),且模型文件已下载。",
-            )
+            from livebabel.gui_common import error
+            error(self, "启动失败",
+                  f"实时模式启动失败:\n{type(e).__name__}: {e}\n\n"
+                  "请确认已安装系统音频采集依赖(pyaudiowpatch),且模型文件已下载。")
 
     def _on_live_closed(self) -> None:
         self._live_thread = None

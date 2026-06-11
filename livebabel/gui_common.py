@@ -169,6 +169,46 @@ def app_icon():
     return QIcon(path) if path else QIcon()
 
 
+def _styled_box(parent, title: str, text: str, buttons, default=None):
+    """构造一个深色主题、用我们自己 logo(而非系统感叹号/i 图标)的消息框。"""
+    from PySide6.QtWidgets import QMessageBox
+    from PySide6.QtCore import Qt
+    box = QMessageBox(parent)
+    box.setWindowTitle(title)
+    box.setText(text)
+    box.setStandardButtons(buttons)
+    if default is not None:
+        box.setDefaultButton(default)
+    # 用应用 logo 替换系统标准图标(information 的蓝色 ⓘ 在深色里很丑)
+    icon = app_icon()
+    if not icon.isNull():
+        box.setIconPixmap(icon.pixmap(48, 48))
+    else:
+        box.setIcon(QMessageBox.NoIcon)
+    return box
+
+
+def info(parent, title: str, text: str) -> None:
+    from PySide6.QtWidgets import QMessageBox
+    _styled_box(parent, title, text, QMessageBox.Ok).exec()
+
+
+def error(parent, title: str, text: str) -> None:
+    from PySide6.QtWidgets import QMessageBox
+    _styled_box(parent, title, text, QMessageBox.Ok).exec()
+
+
+def confirm(parent, title: str, text: str) -> bool:
+    """是/否确认框,返回 True=用户选「是」。"""
+    from PySide6.QtWidgets import QMessageBox
+    box = _styled_box(parent, title, text,
+                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+    # 中文化按钮文字
+    box.button(QMessageBox.Yes).setText("是")
+    box.button(QMessageBox.No).setText("否")
+    return box.exec() == QMessageBox.Yes
+
+
 def apply_app_theme(app) -> None:
     """给整个 QApplication 套深色调色板 + 全局样式。
 

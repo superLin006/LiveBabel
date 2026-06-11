@@ -353,14 +353,10 @@ class OfflineWindow(QWidget):
         translate = self.cb_translate.isChecked()
         if translate and not (self._api_key or "").strip():
             # 要翻译却没 key:提示,但允许只出原文(避免每句都 [未设置 KEY])
-            from PySide6.QtWidgets import QMessageBox
-            r = QMessageBox.question(
-                self, "未设置 API Key",
-                "已勾选翻译,但还没设置 DeepSeek API Key。\n"
-                "选「是」只生成原文字幕;选「否」我去主页设置 Key。",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-            )
-            if r != QMessageBox.Yes:
+            from livebabel.gui_common import confirm
+            if not confirm(self, "未设置 API Key",
+                           "已勾选翻译,但还没设置 DeepSeek API Key。\n"
+                           "选「是」只生成原文字幕;选「否」我去主页设置 Key。"):
                 return
             translate = False
             self.cb_translate.setChecked(False)
@@ -436,13 +432,9 @@ class OfflineWindow(QWidget):
 
     def closeEvent(self, e) -> None:
         if self._worker and self._worker.isRunning():
-            from PySide6.QtWidgets import QMessageBox
-            r = QMessageBox.question(
-                self, "仍在处理",
-                "字幕生成尚未完成,确定要关闭吗?(将尝试取消)",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-            )
-            if r != QMessageBox.Yes:
+            from livebabel.gui_common import confirm
+            if not confirm(self, "仍在处理",
+                           "字幕生成尚未完成,确定要关闭吗?(将尝试取消)"):
                 e.ignore()
                 return
             self._stop_worker()             # 等线程干净退出,杜绝销毁崩溃
