@@ -49,28 +49,35 @@ def burn_subtitle(
             output_path,
         ]
 
-    # GPU:硬件解码(-hwaccel cuda)+ NVENC 编码,解码/编码两端都用 GPU,
-    #      只剩字幕滤镜在 CPU(libass 无法 GPU 化)。p4 预设、CQ 23 ≈ CRF 23。
+    # NVENC 编码 / CUDA 硬解码 参数
     gpu_hw = ["-hwaccel", "cuda"]
-    gpu_args = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23"]
-    # CPU:libx264 veryfast,比默认 medium 快好几倍
+    nvenc = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23"]
     cpu_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
 
+    def _err(proc):
+        return proc.stderr.decode(errors="replace") if proc.stderr else ""
+
     if use_gpu:
+        # 分级回退:① GPU 解码+NVENC → ② CPU 解码+NVENC → ③ 纯 CPU。
+        # 很多机器 -hwaccel cuda 解码挑视频格式,但 NVENC 编码可用,② 仍能 GPU 提速。
         if on_log:
-            on_log("      用 GPU(CUDA 解码 + NVENC 编码)烧录…")
-        proc = _run(base_cmd(gpu_hw, gpu_args))
+            on_log("      尝试 GPU 烧录(CUDA 解码 + NVENC 编码)…")
+        proc = _run(base_cmd(gpu_hw, nvenc))
         if proc.returncode == 0:
             return
-        # GPU 硬解+NVENC 失败(驱动/编解码不支持等)→ 回退纯 CPU
         if on_log:
-            on_log("      GPU 烧录失败,回退 CPU(libx264 veryfast)…")
+            on_log("      CUDA 硬解码失败,改用 CPU 解码 + NVENC 编码…")
+            on_log("      [ffmpeg] " + _err(proc).strip()[-500:])   # 暴露真实报错
+        proc = _run(base_cmd([], nvenc))
+        if proc.returncode == 0:
+            return
+        if on_log:
+            on_log("      NVENC 编码也不可用(多为显卡驱动旧/无 N 卡),回退纯 CPU…")
+            on_log("      [ffmpeg] " + _err(proc).strip()[-500:])
 
     proc = _run(base_cmd([], cpu_args))
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"ffmpeg 烧录字幕失败:\n{proc.stderr.decode(errors='replace')}"
-        )
+        raise RuntimeError(f"ffmpeg 烧录字幕失败:\n{_err(proc)}")
 
 
 def mux_soft_subtitle(
