@@ -88,37 +88,34 @@ def ensure_cuda_dlls() -> list[str]:
     if dirs:
         os.environ["PATH"] = os.pathsep.join(dirs) + os.pathsep + os.environ.get("PATH", "")
 
-    # 主动预加载:按依赖顺序(cublasLt 先于 cublas,cublas 先于 cudnn)。
-    # 把成功/失败打到 stderr(会进 livebabel.log),便于定位 Error 1114/加载失败真因。
+    # 按依赖顺序预加载 sherpa CUDA provider 所需的运行时:基础 runtime/nvrtc/jitlink
+    # 先,然后 cublas/cufft,最后 cuDNN(依赖前面)。缺任一会 Error 1114。
+    # cusparse/cusolver/curand 实测用不到,不预加载也不打包(省 ~1GB)。
     import ctypes
-    # 按依赖顺序预加载全套 CUDA 运行时:基础 runtime/nvrtc/jitlink 先,
-    # 然后数学库(cublas 系列、cufft/curand/cusolver/cusparse),最后 cuDNN(依赖前面)。
-    # sherpa CUDA provider 初始化需要这一整套,缺任一会 Error 1114。
     patterns = [
         "cudart64_*.dll", "nvrtc64_*.dll", "nvrtc-builtins64_*.dll", "nvJitLink_64_*.dll",
-        "cublasLt64_*.dll", "cublas64_*.dll",
-        "cufft64_*.dll", "curand64_*.dll",
-        "cusparse64_*.dll", "cusolver64_*.dll",
+        "cublasLt64_*.dll", "cublas64_*.dll", "cufft64_*.dll",
         "cudnn_graph64_9.dll", "cudnn_ops64_9.dll", "cudnn_heuristic64_9.dll",
         "cudnn_cnn64_9.dll", "cudnn_engines_runtime_compiled64_9.dll",
         "cudnn_engines_precompiled64_9.dll", "cudnn_adv64_9.dll",
         "cudnn64_9.dll",
     ]
-    ok, fail = [], []
+    fail = []
     for pat in patterns:
         for d in dirs:
             for dll in sorted(glob.glob(os.path.join(d, pat))):
                 try:
                     ctypes.WinDLL(dll)
-                    ok.append(os.path.basename(dll))
                 except OSError as e:
                     fail.append(f"{os.path.basename(dll)}: {e}")
-    try:
-        sys.stderr.write(f"[cuda] 预加载成功 {len(ok)} 个;失败 {len(fail)} 个\n")
-        for f in fail:
-            sys.stderr.write(f"[cuda]   加载失败 {f}\n")
-    except Exception:
-        pass
+    # 只在有失败时记日志(便于用户在自己机器排查 GPU 问题);成功不刷屏
+    if fail:
+        try:
+            sys.stderr.write(f"[cuda] {len(fail)} 个 CUDA 库预加载失败:\n")
+            for f in fail:
+                sys.stderr.write(f"[cuda]   {f}\n")
+        except Exception:
+            pass
     return dirs
 
 

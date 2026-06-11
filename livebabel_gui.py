@@ -50,10 +50,9 @@ def main() -> None:
     # 否则打包版里 sherpa 的 cuda provider 因找不到依赖而 "Failed to load shared library"。
     try:
         from livebabel.offline.cuda_dll import ensure_cuda_dlls
-        added = ensure_cuda_dlls()
-        sys.stderr.write(f"[cuda] 注册 DLL 目录: {added}\n")
-    except Exception as e:
-        sys.stderr.write(f"[cuda] 注册失败: {e}\n")
+        ensure_cuda_dlls()
+    except Exception:
+        pass
     from livebabel.launcher import main as _main
     _main()
 

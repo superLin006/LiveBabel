@@ -26,16 +26,20 @@ for pkg in ("sherpa_onnx", "ctranslate2", "av", "onnxruntime"):
     binaries += collect_dynamic_libs(pkg)
 # GPU 运行时:nvidia-cublas-cu12 / nvidia-cudnn-cu12 的 DLL(没装这两个包则为空,
 # 那就是 CPU-only 包)。装了就自动打进去 → GPU 开箱即用。
-# 收集【全部】nvidia-* CUDA 运行时子包。sherpa-onnx 的 CUDA provider 初始化时
-# 需要一整套:cublas/cudnn/cufft/curand/cusolver/cusparse/cuda_runtime/cuda_nvrtc/
-# nvjitlink。只带 cublas+cudnn 会在打包后报 Error 1114(DLL 初始化失败)。
-# 用 collect_dynamic_libs("nvidia") 一次性收集 nvidia 命名空间下所有子包的 DLL。
+# 收集 nvidia-* CUDA 运行时子包。sherpa-onnx 的 CUDA provider 初始化需要:
+# cublas/cudnn/cufft/cuda_runtime/cuda_nvrtc/nvjitlink。只带 cublas+cudnn 会报
+# Error 1114(DLL 初始化失败)。
+# 已现场实测(改名禁用后三模式 GPU 均正常):cusparse/cusolver/curand 用不到,
+# 排除以省 ~1GB。cuDNN 全部保留(删 cudnn_adv/engines_precompiled 会致加载失败)。
+_NV_SKIP = ("cusparse", "cusolver", "curand")
 try:
-    binaries += collect_dynamic_libs("nvidia")
+    for src, dst in collect_dynamic_libs("nvidia"):
+        # dst 形如 nvidia\cusparse\bin;按子包名过滤
+        if any(("\\%s\\" % s) in (dst + "\\") or ("/%s/" % s) in (dst + "/") for s in _NV_SKIP):
+            continue
+        binaries.append((src, dst))
 except Exception:
     pass
-# 注:cuDNN 全部保留(曾试删 cudnn_adv/engines_precompiled 瘦身,但 sherpa CUDA
-# provider 需要,删了实时 GPU 加载失败)。
 
 # ---- 数据文件 ----
 # faster-whisper 自带 silero_vad_v6.onnx(我们 transcribe 用 vad_filter=True 必需);
