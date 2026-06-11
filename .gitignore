@@ -28,9 +28,13 @@ venv/
 overlay_preview.png
 overlay_toolbar.png
 
-# 测试媒体(本地素材,不入库)
+# 测试媒体 + 字幕产物(本地生成,不入库)
 test-*.mp4
+test-*.mkv
+test-*.ass
+test-*.srt
 *.bilingual.mp4
+*.softsub.mkv
 
 # 编辑器/系统
 .vscode/

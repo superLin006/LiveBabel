@@ -36,6 +36,11 @@ def detect_provider() -> str:
     global _cached_provider
     if _cached_provider is not None:
         return _cached_provider
+    # 纯 CPU 版打包用此开关强制 CPU,避免在有 GPU 机器上尝试加载没打包的 GPU dll
+    import os as _os
+    if _os.environ.get("LIVEBABEL_CPU_ONLY", "").strip() in ("1", "true", "True"):
+        _cached_provider = "cpu"
+        return "cpu"
     provider = "cpu"
     try:
         # GPU 版 sherpa-onnx 的 lib 目录里会有 onnxruntime_providers_cuda.dll
