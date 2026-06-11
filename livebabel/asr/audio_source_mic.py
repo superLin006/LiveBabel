@@ -29,28 +29,78 @@ class MicrophoneSource(AudioSource):
     def stop(self) -> None:
         self._stop = True
 
+    @staticmethod
+    def has_microphone() -> bool:
+        """系统当前是否有可用的麦克风(真实输入设备,排除 loopback)。
+
+        会议页据此决定是否启用"含麦克风"的选项。任何异常都按"无麦"处理。
+        """
+        try:
+            import pyaudiowpatch as pyaudio
+        except Exception:
+            return False
+        pa = pyaudio.PyAudio()
+        try:
+            for i in range(pa.get_device_count()):
+                d = pa.get_device_info_by_index(i)
+                name = str(d.get("name", ""))
+                if d.get("maxInputChannels", 0) > 0 and "loopback" not in name.lower():
+                    return True
+            return False
+        except Exception:
+            return False
+        finally:
+            try:
+                pa.terminate()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _pick_input_device(pa):
+        """选一个真实麦克风设备(优先默认输入;默认不可用则取第一个非 loopback 输入)。"""
+        try:
+            di = pa.get_default_input_device_info()
+            if di and di.get("maxInputChannels", 0) > 0:
+                return di
+        except Exception:
+            pass
+        for i in range(pa.get_device_count()):
+            d = pa.get_device_info_by_index(i)
+            if d.get("maxInputChannels", 0) > 0 and "loopback" not in str(d.get("name", "")).lower():
+                return d
+        raise RuntimeError("未找到可用麦克风(没有输入设备)。请插入/连接麦克风后重试。")
+
     def frames(self) -> Iterator[np.ndarray]:
         import sys
         import pyaudiowpatch as pyaudio
 
         pa = pyaudio.PyAudio()
         try:
-            idx = self.device_index
-            if idx is None:
-                idx = pa.get_default_input_device_info()["index"]
-            dev = pa.get_device_info_by_index(idx)
-            print(f"[mic] 麦克风设备: {dev['name']} (index={idx}, "
-                  f"rate={int(dev['defaultSampleRate'])}, "
-                  f"ch={int(dev['maxInputChannels'])})", file=sys.stderr)
-
+            if self.device_index is not None:
+                dev = pa.get_device_info_by_index(self.device_index)
+            else:
+                dev = self._pick_input_device(pa)   # 没有可用麦会抛 RuntimeError
+            idx = dev["index"]
             native_rate = int(dev["defaultSampleRate"])
-            channels = min(int(dev["maxInputChannels"]), 1) or 1   # 麦克风用单声道
+            max_ch = max(1, int(dev["maxInputChannels"]))
+            print(f"[mic] 麦克风设备: {dev['name']} (index={idx}, "
+                  f"rate={native_rate}, ch={max_ch})", file=sys.stderr)
+
             frames_per_buffer = int(native_rate * self.chunk_ms / 1000)
-            stream = pa.open(
-                format=pyaudio.paFloat32, channels=channels, rate=native_rate,
-                frames_per_buffer=frames_per_buffer, input=True,
-                input_device_index=idx,
-            )
+            # 先试单声道,设备不支持再用其原生声道数(避免直接打不开)
+            stream = None
+            for channels in (1, max_ch):
+                try:
+                    stream = pa.open(
+                        format=pyaudio.paFloat32, channels=channels, rate=native_rate,
+                        frames_per_buffer=frames_per_buffer, input=True,
+                        input_device_index=idx,
+                    )
+                    break
+                except Exception:
+                    stream = None
+            if stream is None:
+                raise RuntimeError(f"无法打开麦克风「{dev['name']}」(设备忙或格式不支持)。")
             try:
                 while not self._stop:
                     try:

@@ -86,6 +86,9 @@ class MeetingWindow(QWidget):
             "仅麦克风(只录我/线下)",
         ])
         ctl.addWidget(self.src_combo, 1)
+        refresh_btn = QPushButton("刷新设备")
+        refresh_btn.clicked.connect(self._refresh_mic_state)
+        ctl.addWidget(refresh_btn)
         self.rec_btn = QPushButton("开始录制")
         self.rec_btn.setObjectName("primary")
         self.rec_btn.clicked.connect(self._toggle_record)
@@ -132,10 +135,33 @@ class MeetingWindow(QWidget):
         exp_row.addWidget(self.export_btn)
         root.addLayout(exp_row)
 
+        self._refresh_mic_state()   # 根据有无麦克风调整可选项
+
     def _section(self, text: str) -> QLabel:
         lab = QLabel(text)
         lab.setObjectName("section")
         return lab
+
+    def _refresh_mic_state(self) -> None:
+        """检测麦克风:有则启用含麦选项;无则禁用并默认「仅系统声音」+ 提示。"""
+        from PySide6.QtCore import Qt as _Qt
+        from livebabel.asr.audio_source_mic import MicrophoneSource
+        has_mic = MicrophoneSource.has_microphone()
+        model = self.src_combo.model()
+        # 索引 0(我+远端)、2(仅麦克风)需要麦克风
+        for i in (0, 2):
+            item = model.item(i)
+            if has_mic:
+                item.setFlags(item.flags() | _Qt.ItemIsEnabled)
+            else:
+                item.setFlags(item.flags() & ~_Qt.ItemIsEnabled)
+        if not has_mic:
+            self.src_combo.setCurrentIndex(1)   # 仅系统声音
+            self.status.setText("未检测到麦克风:只会记录远端/系统声音。"
+                                "插好麦克风(或连蓝牙耳麦)后点「刷新设备」。")
+        else:
+            self.src_combo.setCurrentIndex(0)
+            self.status.setText("✓ 已检测到麦克风。就绪")
 
     # ---- 录制 ----
 
@@ -147,9 +173,18 @@ class MeetingWindow(QWidget):
 
     def _start_record(self) -> None:
         from livebabel.meeting.pipeline import MeetingPipeline
+        from livebabel.asr.audio_source_mic import MicrophoneSource
         idx = self.src_combo.currentIndex()
         use_mic = idx in (0, 2)
         use_lb = idx in (0, 1)
+        # 选了含麦但实际没麦:仅麦克风→拦下;我+远端→降级为仅远端并提示
+        if use_mic and not MicrophoneSource.has_microphone():
+            if not use_lb:
+                error(self, "无麦克风",
+                      "未检测到麦克风,无法「仅麦克风」录制。请插麦克风后点「刷新设备」。")
+                return
+            use_mic = False
+            self.status.setText("未检测到麦克风,本次只录系统声音(远端)。")
         self.recorder.reset()
         self.transcript_view.clear()
         self.status.setText("正在加载模型并录制…(首次稍慢)")
