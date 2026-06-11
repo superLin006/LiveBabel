@@ -26,21 +26,15 @@ for pkg in ("sherpa_onnx", "ctranslate2", "av", "onnxruntime"):
     binaries += collect_dynamic_libs(pkg)
 # GPU 运行时:nvidia-cublas-cu12 / nvidia-cudnn-cu12 的 DLL(没装这两个包则为空,
 # 那就是 CPU-only 包)。装了就自动打进去 → GPU 开箱即用。
-_nv = []
 for pkg in ("nvidia.cublas", "nvidia.cudnn"):
     try:
-        _nv += collect_dynamic_libs(pkg)
+        binaries += collect_dynamic_libs(pkg)
     except Exception:
         pass
-# 剔除两个超大且 faster-whisper 推理用不到的 cuDNN DLL(共约 700MB):
-#   cudnn_adv(RNN/注意力高级算子)、cudnn_engines_precompiled(预编译引擎,
-#   缺它会改用运行时编译,首次稍慢但能跑)。已实测删除后 GPU 识别正常。
-_SKIP = ("cudnn_adv", "cudnn_engines_precompiled")
-for src, dst in _nv:
-    name = os.path.basename(src).lower()
-    if any(name.startswith(s) for s in _SKIP):
-        continue
-    binaries.append((src, dst))
+# 注:曾尝试剔除 cudnn_adv / cudnn_engines_precompiled(~700MB)来瘦身——faster-whisper
+# 离线确实不需要,但实测【sherpa-onnx 的 CUDA provider 需要它们】,打包后删掉会导致
+# 实时 ASR 报 "OrtSessionOptionsAppendExecutionProvider_Cuda: Failed to load shared library"。
+# 故保留全部 cuDNN DLL,确保实时 GPU 可用。
 
 # ---- 数据文件 ----
 # faster-whisper 自带 silero_vad_v6.onnx(我们 transcribe 用 vad_filter=True 必需);
