@@ -125,6 +125,14 @@ class VadTwoPassAsr:
         # provider: "auto"(默认,检测到 onnxruntime-gpu 的 CUDA provider 就用 cuda,
         # 否则 cpu)/ "cpu" / "cuda"。装了 onnxruntime-gpu + N 卡即自动 GPU 加速。
         self.provider = detect_provider() if provider == "auto" else provider
+        # GPU 模式:先注册/预加载 cuBLAS/cuDNN DLL,否则 sherpa 的 CUDA provider 会因
+        # 找不到 cublasLt64_12.dll 等而加载失败。与离线 faster-whisper 复用同一套逻辑。
+        if self.provider == "cuda":
+            try:
+                from livebabel.offline.cuda_dll import ensure_cuda_dlls
+                ensure_cuda_dlls()
+            except Exception:
+                pass
         import sys as _sys
         print(f"[asr] 实时识别使用 {'GPU(CUDA)' if self.provider == 'cuda' else 'CPU'}",
               file=_sys.stderr)
