@@ -26,6 +26,7 @@ def main() -> None:
         print("[onnxruntime] 导入失败:", e)
 
     # 2) sherpa_onnx 自带 onnxruntime DLL 列表
+    sdir = None
     try:
         import sherpa_onnx
         sdir = os.path.join(os.path.dirname(sherpa_onnx.__file__), "lib")
@@ -35,6 +36,32 @@ def main() -> None:
             print("   ", os.path.basename(p), f"{os.path.getsize(p)//1024//1024}MB")
     except Exception as e:
         print("[sherpa_onnx] 导入失败:", e)
+
+    # 2b) 关键:先注册 cuBLAS/cuDNN,再直接 WinDLL 加载 sherpa 的 cuda provider,
+    #     看它到底缺哪个依赖 dll(用 win32 LoadLibraryEx 拿到真实错误)
+    print("=" * 60)
+    print("直接加载 onnxruntime_providers_cuda.dll(看缺哪个依赖):")
+    try:
+        from livebabel.offline.cuda_dll import ensure_cuda_dlls
+        ensure_cuda_dlls()
+    except Exception as e:
+        print("  ensure_cuda_dlls:", e)
+    if sdir:
+        import ctypes
+        cuda_dll = os.path.join(sdir, "onnxruntime_providers_cuda.dll")
+        # 先把 sherpa lib 目录也加入搜索(它依赖同目录 onnxruntime.dll)
+        try:
+            os.add_dll_directory(sdir)
+        except Exception:
+            pass
+        try:
+            ctypes.WinDLL(cuda_dll)
+            print("  [OK] onnxruntime_providers_cuda.dll 加载成功!")
+        except OSError as e:
+            print("  [FAIL] 加载失败,真实错误:")
+            print("   ", repr(e))
+            print("  → WinError 126 = 找不到某个依赖 dll;",
+                  "可用 dumpbin/Dependencies 看,但通常是缺 cudart64_12.dll(CUDA runtime)")
 
     # 3) nvidia 包里的 cublas/cudnn DLL
     print("=" * 60)
