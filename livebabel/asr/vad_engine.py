@@ -26,18 +26,25 @@ _cached_provider = None
 
 
 def detect_provider() -> str:
-    """探测 ONNX Runtime 能否用 CUDA,可以则返回 "cuda",否则 "cpu"。
+    """探测 sherpa-onnx 能否真正用 CUDA,可以则 "cuda",否则 "cpu"。
 
-    需要装 onnxruntime-gpu(纯 onnxruntime 没有 CUDAExecutionProvider)。
-    结果缓存:进程内只探一次。任何异常都安全回退 cpu。
+    关键:不能靠 `import onnxruntime`(那是 faster-whisper 的 pip 包,sherpa 用的是
+    自带 lib 里的另一份 onnxruntime)。两份混用会导致 cuda provider 初始化失败
+    (Error 1114)。所以直接看 sherpa_onnx 是否报告 cuda 可用 / 是否带 cuda provider。
+    结果缓存。任何异常安全回退 cpu。
     """
     global _cached_provider
     if _cached_provider is not None:
         return _cached_provider
     provider = "cpu"
     try:
-        import onnxruntime as ort
-        if "CUDAExecutionProvider" in ort.get_available_providers():
+        # GPU 版 sherpa-onnx 的 lib 目录里会有 onnxruntime_providers_cuda.dll
+        import os as _os
+        import sherpa_onnx as _so
+        libdir = _os.path.join(_os.path.dirname(_so.__file__), "lib")
+        has_cuda_dll = _os.path.isfile(_os.path.join(libdir, "onnxruntime_providers_cuda.dll")) \
+            or _os.path.isfile(_os.path.join(libdir, "libonnxruntime_providers_cuda.so"))
+        if has_cuda_dll:
             provider = "cuda"
     except Exception:
         pass
