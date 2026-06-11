@@ -23,8 +23,10 @@ def main() -> None:
     os.add_dll_directory(sdir)
     print("sherpa lib:", sdir)
 
-    # 按依赖顺序预加载 cuBLAS/cuDNN
-    order = ["cublasLt64_*.dll", "cublas64_*.dll",
+    # 按依赖顺序预加载【全套】CUDA 运行时(含 cudart/nvrtc/cufft/curand/cusolver/cusparse)
+    order = ["cudart64_*.dll", "nvrtc64_*.dll", "nvrtc-builtins64_*.dll", "nvJitLink_64_*.dll",
+             "cublasLt64_*.dll", "cublas64_*.dll",
+             "cufft64_*.dll", "curand64_*.dll", "cusparse64_*.dll", "cusolver64_*.dll",
              "cudnn_graph64_9.dll", "cudnn_ops64_9.dll", "cudnn_heuristic64_9.dll",
              "cudnn_cnn64_9.dll", "cudnn_engines_runtime_compiled64_9.dll",
              "cudnn_engines_precompiled64_9.dll", "cudnn_adv64_9.dll", "cudnn64_9.dll"]

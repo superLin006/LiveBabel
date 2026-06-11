@@ -26,15 +26,16 @@ for pkg in ("sherpa_onnx", "ctranslate2", "av", "onnxruntime"):
     binaries += collect_dynamic_libs(pkg)
 # GPU 运行时:nvidia-cublas-cu12 / nvidia-cudnn-cu12 的 DLL(没装这两个包则为空,
 # 那就是 CPU-only 包)。装了就自动打进去 → GPU 开箱即用。
-for pkg in ("nvidia.cublas", "nvidia.cudnn"):
-    try:
-        binaries += collect_dynamic_libs(pkg)
-    except Exception:
-        pass
-# 注:曾尝试剔除 cudnn_adv / cudnn_engines_precompiled(~700MB)来瘦身——faster-whisper
-# 离线确实不需要,但实测【sherpa-onnx 的 CUDA provider 需要它们】,打包后删掉会导致
-# 实时 ASR 报 "OrtSessionOptionsAppendExecutionProvider_Cuda: Failed to load shared library"。
-# 故保留全部 cuDNN DLL,确保实时 GPU 可用。
+# 收集【全部】nvidia-* CUDA 运行时子包。sherpa-onnx 的 CUDA provider 初始化时
+# 需要一整套:cublas/cudnn/cufft/curand/cusolver/cusparse/cuda_runtime/cuda_nvrtc/
+# nvjitlink。只带 cublas+cudnn 会在打包后报 Error 1114(DLL 初始化失败)。
+# 用 collect_dynamic_libs("nvidia") 一次性收集 nvidia 命名空间下所有子包的 DLL。
+try:
+    binaries += collect_dynamic_libs("nvidia")
+except Exception:
+    pass
+# 注:cuDNN 全部保留(曾试删 cudnn_adv/engines_precompiled 瘦身,但 sherpa CUDA
+# provider 需要,删了实时 GPU 加载失败)。
 
 # ---- 数据文件 ----
 # faster-whisper 自带 silero_vad_v6.onnx(我们 transcribe 用 vad_filter=True 必需);

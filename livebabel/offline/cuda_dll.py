@@ -91,9 +91,14 @@ def ensure_cuda_dlls() -> list[str]:
     # 主动预加载:按依赖顺序(cublasLt 先于 cublas,cublas 先于 cudnn)。
     # 把成功/失败打到 stderr(会进 livebabel.log),便于定位 Error 1114/加载失败真因。
     import ctypes
+    # 按依赖顺序预加载全套 CUDA 运行时:基础 runtime/nvrtc/jitlink 先,
+    # 然后数学库(cublas 系列、cufft/curand/cusolver/cusparse),最后 cuDNN(依赖前面)。
+    # sherpa CUDA provider 初始化需要这一整套,缺任一会 Error 1114。
     patterns = [
-        "cublasLt64_*.dll",
-        "cublas64_*.dll",
+        "cudart64_*.dll", "nvrtc64_*.dll", "nvrtc-builtins64_*.dll", "nvJitLink_64_*.dll",
+        "cublasLt64_*.dll", "cublas64_*.dll",
+        "cufft64_*.dll", "curand64_*.dll",
+        "cusparse64_*.dll", "cusolver64_*.dll",
         "cudnn_graph64_9.dll", "cudnn_ops64_9.dll", "cudnn_heuristic64_9.dll",
         "cudnn_cnn64_9.dll", "cudnn_engines_runtime_compiled64_9.dll",
         "cudnn_engines_precompiled64_9.dll", "cudnn_adv64_9.dll",
