@@ -90,6 +90,7 @@ class Launcher(QWidget):
         super().__init__()
         self.s = load_settings()
         self._offline_win = None       # 持有引用,防被 GC
+        self._meeting_win = None
         self._live_thread = None
 
         self.setWindowTitle("LiveBabel")
@@ -114,7 +115,7 @@ class Launcher(QWidget):
 
         title = QLabel("LiveBabel")
         title.setObjectName("title")
-        sub = QLabel("实时 & 离线 双语字幕")
+        sub = QLabel("实时字幕 · 离线字幕 · 会议纪要")
         sub.setObjectName("subtitle")
         root.addWidget(title)
         root.addWidget(sub)
@@ -131,6 +132,11 @@ class Launcher(QWidget):
             "🎬", "离线模式",
             "选择本地视频文件,生成双语字幕(SRT / ASS),可直接烧录进视频。适合给录播 / 影片配字幕。",
             self._open_offline,
+        ))
+        cards.addWidget(ModeCard(
+            "📝", "会议纪要",
+            "录制会议(区分我 / 远端),实时转录,一键生成结构化纪要并导出。适合线上 / 线下会议记录。",
+            self._open_meeting,
         ))
         root.addLayout(cards, 1)
 
@@ -176,12 +182,16 @@ class Launcher(QWidget):
             self._refresh_key_status()
             if self._offline_win is not None:
                 self._offline_win.set_api_key(self._effective_key())
+            if self._meeting_win is not None:
+                self._meeting_win.set_api_key(self._effective_key())
 
     def closeEvent(self, e) -> None:
         # 关启动器前,确保离线后台线程已停,避免 "QThread destroyed while running"
         if self._offline_win is not None:
             self._offline_win._stop_worker()
             self._offline_win.close()
+        if self._meeting_win is not None:
+            self._meeting_win.close()
         e.accept()
 
     # ---- 模式 ----
@@ -194,6 +204,15 @@ class Launcher(QWidget):
         self._offline_win.show()
         self._offline_win.raise_()
         self._offline_win.activateWindow()
+
+    def _open_meeting(self) -> None:
+        from livebabel.meeting_window import MeetingWindow
+        if self._meeting_win is None:
+            self._meeting_win = MeetingWindow(api_key=self._effective_key())
+        self._meeting_win.set_api_key(self._effective_key())
+        self._meeting_win.show()
+        self._meeting_win.raise_()
+        self._meeting_win.activateWindow()
 
     def _start_live(self) -> None:
         """启动实时悬浮窗。复用 app.py 的流水线;悬浮窗为独立顶层窗,与本启动器共存。"""
