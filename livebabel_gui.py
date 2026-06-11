@@ -46,6 +46,14 @@ def _setup_logfile() -> None:
 
 def main() -> None:
     _setup_logfile()
+    # 尽早注册 cuBLAS/cuDNN DLL 搜索路径(在任何 sherpa/ctranslate2 加载 CUDA 之前),
+    # 否则打包版里 sherpa 的 cuda provider 因找不到依赖而 "Failed to load shared library"。
+    try:
+        from livebabel.offline.cuda_dll import ensure_cuda_dlls
+        added = ensure_cuda_dlls()
+        sys.stderr.write(f"[cuda] 注册 DLL 目录: {added}\n")
+    except Exception as e:
+        sys.stderr.write(f"[cuda] 注册失败: {e}\n")
     from livebabel.launcher import main as _main
     _main()
 
