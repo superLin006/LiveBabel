@@ -200,6 +200,8 @@ class OfflineWindow(QWidget):
 
         self.setWindowTitle("LiveBabel · 离线字幕")
         self.resize(620, 640)
+        from livebabel.gui_common import app_icon
+        self.setWindowIcon(app_icon())
         apply_theme(self)
         self._dark_titlebar_done = False
         self._build()

@@ -94,6 +94,8 @@ class Launcher(QWidget):
 
         self.setWindowTitle("LiveBabel")
         self.resize(560, 460)
+        from livebabel.gui_common import app_icon
+        self.setWindowIcon(app_icon())
         apply_theme(self)
         self._dark_titlebar_done = False
         self._build()
@@ -301,8 +303,9 @@ def _start_live_overlay(api_key: str):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("LiveBabel")
-    from livebabel.gui_common import apply_app_theme
+    from livebabel.gui_common import apply_app_theme, app_icon
     apply_app_theme(app)            # 全局深色调色板,消除白边/白底弹窗
+    app.setWindowIcon(app_icon())   # 任务栏/弹窗/所有窗口默认图标
     win = Launcher()
     win.show()
     sys.exit(app.exec())

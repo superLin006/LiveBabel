@@ -31,7 +31,23 @@ QWidget#root {{
 QDialog, QMessageBox, QInputDialog, QFileDialog {{
     background: {BG};
 }}
-QDialog QLabel, QMessageBox QLabel {{ background: transparent; }}
+QDialog QLabel, QMessageBox QLabel {{
+    background: transparent;
+    font-size: 13px;
+}}
+QMessageBox {{ min-width: 360px; }}
+/* 对话框按钮:统一尺寸 + 主按钮高亮 */
+QDialog QPushButton, QMessageBox QPushButton {{
+    min-width: 76px;
+    padding: 7px 18px;
+}}
+QMessageBox QPushButton:default, QDialog QPushButton:default {{
+    background: {ACCENT_DEEP};
+    border: none;
+    color: #08222A;
+    font-weight: bold;
+}}
+QMessageBox QPushButton:default:hover {{ background: {ACCENT}; }}
 QLabel#title {{
     font-size: 22px;
     font-weight: bold;
@@ -143,6 +159,14 @@ def enable_dark_titlebar(widget) -> None:
                 ctypes.byref(val), ctypes.sizeof(val))
     except Exception:
         pass
+
+
+def app_icon():
+    """返回应用 QIcon(找不到图标文件则返回空 QIcon)。"""
+    from PySide6.QtGui import QIcon
+    from livebabel.paths import find_icon
+    path = find_icon()
+    return QIcon(path) if path else QIcon()
 
 
 def apply_app_theme(app) -> None:

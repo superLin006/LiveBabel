@@ -32,3 +32,25 @@ VAD_MODEL = res("models", "silero_vad.onnx")
 WHISPER_DIR = res("models", "faster-whisper-large-v3-turbo")
 HISTORY_DIR = res("history")
 SETTINGS_PATH = res("settings.json")
+# 应用图标:assets/icon.ico(打包时随 datas 收集到 _internal/assets 或 exe 旁)
+ICON_ICO = res("assets", "icon.ico")
+ICON_PNG = res("assets", "logo.png")
+
+
+def find_icon() -> str:
+    """返回可用的图标文件路径(优先 .ico),找不到返回空串。
+
+    兼容打包:PyInstaller 可能把 assets 放进 _internal/ 或 _MEIPASS,逐个找。
+    """
+    cands = [ICON_ICO, ICON_PNG]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        cands += [os.path.join(meipass, "assets", "icon.ico"),
+                  os.path.join(meipass, "assets", "logo.png")]
+    if getattr(sys, "frozen", False):
+        ed = os.path.join(os.path.dirname(sys.executable), "_internal", "assets")
+        cands += [os.path.join(ed, "icon.ico"), os.path.join(ed, "logo.png")]
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    return ""

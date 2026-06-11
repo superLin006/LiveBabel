@@ -49,6 +49,13 @@ if os.path.isdir(_ffmpeg_dir):
         if os.path.isfile(src):
             datas.append((src, "ffmpeg"))   # 落到 dist\LiveBabel\ffmpeg\
 
+# 应用图标(窗口/任务栏运行时要用)
+_icon = os.path.join(ROOT, "assets", "icon.ico")
+for f in ("icon.ico", "logo.png"):
+    p = os.path.join(ROOT, "assets", f)
+    if os.path.isfile(p):
+        datas.append((p, "assets"))
+
 # ---- 隐式导入(动态 import,PyInstaller 静态分析抓不到)----
 hiddenimports = (
     collect_submodules("sherpa_onnx")
@@ -94,7 +101,7 @@ exe = EXE(
     exclude_binaries=True,
     name="LiveBabel",
     console=False,                  # 无黑窗(GUI 程序)
-    icon=None,
+    icon=_icon if os.path.isfile(_icon) else None,   # exe 图标
 )
 
 coll = COLLECT(
