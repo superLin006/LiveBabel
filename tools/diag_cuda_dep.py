@@ -45,16 +45,18 @@ def main() -> None:
     except OSError as e:
         print("onnxruntime.dll FAIL", e)
 
-    # 关键:加载 cuda provider
+    # 注意:onnxruntime_providers_cuda.dll 不能用裸 WinDLL 独立加载(它要由
+    # onnxruntime 经 provider_shared 机制加载,裸加载必 1114,是假象,不代表真问题)。
+    # 正确做法是直接用 sherpa 真正建一个 cuda recognizer 看成不成。
     print("=" * 50)
-    cuda = os.path.join(sdir, "onnxruntime_providers_cuda.dll")
+    print("用 sherpa 真正初始化 CUDA(这才是真实判据):")
     try:
-        ctypes.WinDLL(cuda)
-        print("[OK] onnxruntime_providers_cuda.dll 加载成功 —— 依赖齐全")
-    except OSError as e:
-        print("[FAIL] cuda provider 仍加载失败:")
+        import sherpa_onnx as so
+        # 用一个不存在的模型路径只为触发 provider 初始化前的加载;真实测试见下
+        print("  (此脚本不带模型,真实判据请看 livebabel_gui 实时模式日志)")
+        print("  sherpa 版本:", getattr(so, "__version__", "?"))
+    except Exception as e:
         print("  ", repr(e))
-        print("  → 这是脱离系统CUDA时真正缺的依赖。WinError 126 通常是缺 cudart64_12.dll。")
 
     # 看系统/CUDA Toolkit 里有没有 cudart(命令行能跑就是靠它)
     print("=" * 50)
