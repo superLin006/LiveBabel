@@ -22,6 +22,29 @@ import sherpa_onnx
 
 SAMPLE_RATE = 16000
 
+_cached_provider = None
+
+
+def detect_provider() -> str:
+    """探测 ONNX Runtime 能否用 CUDA,可以则返回 "cuda",否则 "cpu"。
+
+    需要装 onnxruntime-gpu(纯 onnxruntime 没有 CUDAExecutionProvider)。
+    结果缓存:进程内只探一次。任何异常都安全回退 cpu。
+    """
+    global _cached_provider
+    if _cached_provider is not None:
+        return _cached_provider
+    provider = "cpu"
+    try:
+        import onnxruntime as ort
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            provider = "cuda"
+    except Exception:
+        pass
+    _cached_provider = provider
+    return provider
+
+
 _PUNCT = re.compile(r"[\s\.,!?;:、。，！？；：…·\-\"'()\[\]<>]+")
 _FILLERS = {"the", "a", "i", "yeah", "you", "uh", "um", "oh", "嗯", "啊", "呃", "哦"}
 
@@ -98,10 +121,13 @@ class VadTwoPassAsr:
     def __init__(self, first_dir: str, second_dir: str, num_threads: int = 2,
                  provisional: bool = True,
                  prov_max_seconds: float = PROVISIONAL_MAX_SECONDS,
-                 provider: str = "cpu") -> None:
-        # provider: "cpu"(默认)或 "cuda"(需装 onnxruntime-gpu + CUDA,N 卡)。
-        # 留此口子,将来要 GPU 加速只需传 provider="cuda",核心逻辑不动。
-        self.provider = provider
+                 provider: str = "auto") -> None:
+        # provider: "auto"(默认,检测到 onnxruntime-gpu 的 CUDA provider 就用 cuda,
+        # 否则 cpu)/ "cpu" / "cuda"。装了 onnxruntime-gpu + N 卡即自动 GPU 加速。
+        self.provider = detect_provider() if provider == "auto" else provider
+        import sys as _sys
+        print(f"[asr] 实时识别使用 {'GPU(CUDA)' if self.provider == 'cuda' else 'CPU'}",
+              file=_sys.stderr)
         self.first = self._build_first(first_dir, num_threads)
         self.second = self._build_second(second_dir, num_threads)
         self.vad = self._build_vad(num_threads)
