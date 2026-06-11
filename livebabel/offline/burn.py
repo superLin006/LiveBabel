@@ -50,8 +50,10 @@ def burn_subtitle(
         ]
 
     # NVENC 编码 / CUDA 硬解码 参数
+    # NVENC 用最保险的参数:不指定 -preset(p4/p1 是较新命名,老驱动不认会失败)、
+    # 不指定 -cq(老驱动对码控参数挑剔),让 NVENC 用自身默认,最大化老驱动兼容性。
     gpu_hw = ["-hwaccel", "cuda"]
-    nvenc = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23"]
+    nvenc = ["-c:v", "h264_nvenc"]
     cpu_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]
 
     def _err(proc):
