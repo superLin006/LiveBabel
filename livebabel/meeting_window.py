@@ -10,14 +10,55 @@ import os
 import threading
 import time
 
-from PySide6.QtCore import Qt, QObject, Signal, QTimer
+from PySide6.QtCore import Qt, QObject, Signal, QTimer, QSize
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-    QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QComboBox, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from livebabel.gui_common import apply_theme, app_icon, info, error, SUBTEXT
+from livebabel.gui_common import (
+    apply_theme, app_icon, info, error, SUBTEXT, ACCENT, ACCENT_DEEP, CARD, CARD_HOVER, BORDER,
+)
 from livebabel.meeting.recorder import MeetingRecorder
+
+
+# 给不同说话人分配稳定的气泡底色(我=青,远端/其他循环取色)
+_SPK_COLORS = ["#2C5C68", "#3A3D48", "#4A3A5A", "#3A4A38", "#5A4A38"]
+
+
+def _bubble_widget(speaker: str, ts: str, text: str, is_me: bool) -> QWidget:
+    """一条聊天气泡:我→右侧青色,其他→左侧灰色,顶部小字显示 说话人·时间。"""
+    row = QWidget()
+    h = QHBoxLayout(row)
+    h.setContentsMargins(8, 3, 8, 3)
+
+    bubble = QFrame()
+    bubble.setObjectName("bubble")
+    color = ACCENT_DEEP if is_me else CARD_HOVER
+    fg = "#08222A" if is_me else "#E8E9ED"
+    sub = "#0A2A33" if is_me else SUBTEXT
+    bubble.setStyleSheet(
+        f"#bubble{{background:{color};border-radius:10px;}}"
+    )
+    bv = QVBoxLayout(bubble)
+    bv.setContentsMargins(12, 7, 12, 8)
+    bv.setSpacing(2)
+    head = QLabel(f"{speaker} · {ts}")
+    head.setStyleSheet(f"color:{sub};font-size:11px;background:transparent;")
+    body = QLabel(text)
+    body.setWordWrap(True)
+    body.setStyleSheet(f"color:{fg};font-size:13px;background:transparent;")
+    body.setMaximumWidth(420)
+    bv.addWidget(head)
+    bv.addWidget(body)
+
+    if is_me:
+        h.addStretch(1)
+        h.addWidget(bubble)
+    else:
+        h.addWidget(bubble)
+        h.addStretch(1)
+    return row
 
 
 class _Bridge(QObject):
@@ -52,6 +93,11 @@ class MeetingWindow(QWidget):
         self._refresh_timer.setInterval(400)
         self._refresh_timer.timeout.connect(self._maybe_refresh)
         self._refresh_timer.start()
+        # 录制计时器(红点闪烁 + 时长)
+        self._rec_timer = QTimer(self)
+        self._rec_timer.setInterval(1000)
+        self._rec_timer.timeout.connect(self._tick_record)
+        self._rec_t0 = 0.0
 
         self._build()
 
@@ -95,36 +141,54 @@ class MeetingWindow(QWidget):
         ctl.addWidget(self.rec_btn)
         root.addLayout(ctl)
 
+        # 醒目状态条:录制中显示红点 + 计时
+        st_row = QHBoxLayout()
+        self.rec_dot = QLabel("●")
+        self.rec_dot.setStyleSheet("color:#FF5C5C;font-size:13px;")
+        self.rec_dot.hide()
         self.status = QLabel("就绪")
         self.status.setObjectName("subtitle")
-        root.addWidget(self.status)
+        st_row.addWidget(self.rec_dot)
+        st_row.addWidget(self.status, 1)
+        root.addLayout(st_row)
 
-        # 实时转录
-        root.addWidget(self._section("实时转录"))
-        self.transcript_view = QTextEdit()
-        self.transcript_view.setReadOnly(True)
-        root.addWidget(self.transcript_view, 2)
+        # 实时转录(聊天气泡)
+        head_row = QHBoxLayout()
+        head_row.addWidget(self._section("实时转录"))
+        head_row.addStretch(1)
+        self.rename_btn = QPushButton("重命名说话人…")
+        self.rename_btn.clicked.connect(self._rename_speaker)
+        head_row.addWidget(self.rename_btn)
+        root.addLayout(head_row)
 
-        # 说话人重命名 + 生成纪要
-        sp_row = QHBoxLayout()
-        rename_btn = QPushButton("重命名说话人…")
-        rename_btn.clicked.connect(self._rename_speaker)
-        sp_row.addWidget(rename_btn)
-        sp_row.addStretch(1)
-        sp_row.addWidget(QLabel("纪要风格"))
+        self.transcript_list = QListWidget()
+        self.transcript_list.setObjectName("transcript")
+        self.transcript_list.setStyleSheet(
+            f"#transcript{{background:{CARD};border:1px solid {BORDER};"
+            f"border-radius:8px;}}#transcript::item{{border:none;}}"
+        )
+        self.transcript_list.setSpacing(0)
+        self.transcript_list.setSelectionMode(QListWidget.NoSelection)
+        self.transcript_list.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        root.addWidget(self.transcript_list, 3)
+        self._bubble_count = 0   # 已渲染的气泡数(增量刷新用)
+
+        # 纪要:标题行带风格选择 + 生成按钮
+        m_head = QHBoxLayout()
+        m_head.addWidget(self._section("纪要"))
+        m_head.addStretch(1)
         self.style_combo = QComboBox()
         self.style_combo.addItems(["结构化纪要", "简洁要点"])
-        sp_row.addWidget(self.style_combo)
+        m_head.addWidget(self.style_combo)
         self.minutes_btn = QPushButton("生成纪要")
         self.minutes_btn.setObjectName("primary")
         self.minutes_btn.clicked.connect(self._make_minutes)
-        sp_row.addWidget(self.minutes_btn)
-        root.addLayout(sp_row)
+        m_head.addWidget(self.minutes_btn)
+        root.addLayout(m_head)
 
-        # 纪要结果
-        root.addWidget(self._section("纪要"))
         self.minutes_view = QTextEdit()
         self.minutes_view.setReadOnly(True)
+        self.minutes_view.setPlaceholderText("录制结束后,点「生成纪要」由 DeepSeek 总结本场会议…")
         root.addWidget(self.minutes_view, 2)
 
         exp_row = QHBoxLayout()
@@ -186,7 +250,8 @@ class MeetingWindow(QWidget):
             use_mic = False
             self.status.setText("未检测到麦克风,本次只录系统声音(远端)。")
         self.recorder.reset()
-        self.transcript_view.clear()
+        self.transcript_list.clear()
+        self._bubble_count = 0
         self.status.setText("正在加载模型并录制…(首次稍慢)")
         self.pipeline = MeetingPipeline(
             self.recorder, on_update=self.bridge.transcript_dirty.emit,
@@ -201,15 +266,29 @@ class MeetingWindow(QWidget):
             return
         self.rec_btn.setText("停止录制")
         self.src_combo.setEnabled(False)
-        self.status.setText("● 录制中…")
+        self._rec_t0 = time.time()
+        self.rec_dot.show()
+        self._rec_timer.start()
+        self._tick_record()
 
     def _stop_record(self) -> None:
         if self.pipeline:
             self.pipeline.stop()
         self.rec_btn.setText("开始录制")
         self.src_combo.setEnabled(True)
+        self._rec_timer.stop()
+        self.rec_dot.hide()
         self._refresh_transcript()
-        self.status.setText("⏹ 已停止。可重命名说话人后生成纪要。")
+        self.status.setText("⏹ 已停止录制,可重命名说话人后生成纪要。")
+
+    def _tick_record(self) -> None:
+        # 录制计时 + 红点闪烁
+        el = int(time.time() - getattr(self, "_rec_t0", time.time()))
+        self.rec_dot.setVisible(not self.rec_dot.isVisible() or True)  # 保持显示
+        vis = (el % 2 == 0)
+        self.rec_dot.setStyleSheet(
+            f"color:{'#FF5C5C' if vis else '#7A2A2A'};font-size:13px;")
+        self.status.setText(f"录制中  {el // 60:02d}:{el % 60:02d}")
 
     # ---- 转录刷新(节流)----
 
@@ -223,11 +302,17 @@ class MeetingWindow(QWidget):
             self._refresh_transcript()
 
     def _refresh_transcript(self) -> None:
-        lines = self.recorder.as_transcript_lines()
-        self.transcript_view.setPlainText("\n".join(lines))
-        # 滚到底
-        sb = self.transcript_view.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        """增量渲染聊天气泡:只为新增的发言追加气泡(不重建,避免闪烁/卡顿)。"""
+        segs = self.recorder.segments()
+        for u in segs[self._bubble_count:]:
+            is_me = (u.speaker == "我")
+            w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t), u.text, is_me)
+            item = QListWidgetItem(self.transcript_list)
+            item.setSizeHint(w.sizeHint())
+            self.transcript_list.addItem(item)
+            self.transcript_list.setItemWidget(item, w)
+        self._bubble_count = len(segs)
+        self.transcript_list.scrollToBottom()
 
     # ---- 说话人重命名 ----
 
@@ -244,6 +329,9 @@ class MeetingWindow(QWidget):
             self, "重命名说话人", f"把「{spk}」显示为:", QLineEdit.Normal, spk)
         if ok and name.strip():
             self.recorder.rename(spk, name.strip())
+            # 重命名影响已有气泡 → 全量重建
+            self.transcript_list.clear()
+            self._bubble_count = 0
             self._refresh_transcript()
 
     # ---- 纪要 ----
