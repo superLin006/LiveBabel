@@ -1,0 +1,11 @@
+# 二进制资源不做换行符转换(否则 Windows autocrlf 会把图片/模型当文本改坏,
+# 导致 git 永远显示 modified、切不了分支)
+*.png   binary
+*.ico   binary
+*.jpg   binary
+*.jpeg  binary
+*.mp4   binary
+*.mkv   binary
+*.wav   binary
+*.onnx  binary
+*.bz2   binary
