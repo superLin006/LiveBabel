@@ -92,7 +92,35 @@ def main() -> None:
         print("  [测试2] 异常(非崩溃):", e)
     pa.terminate()
 
-    print("\n全部测试跑完(没中途崩退就说明都不崩)。")
+    print("\n[测试3] 两个 sherpa GPU 引擎在两个线程并发推理(最可疑)")
+    sys.stdout.flush()
+    try:
+        import threading
+        import numpy as np
+        from livebabel.asr.vad_engine import VadTwoPassAsr
+        from livebabel.paths import FIRST_DIR, SECOND_DIR
+        a1 = VadTwoPassAsr(FIRST_DIR, SECOND_DIR)
+        a2 = VadTwoPassAsr(FIRST_DIR, SECOND_DIR)
+        print(f"  两引擎 provider: {a1.provider} / {a2.provider}")
+        sys.stdout.flush()
+        noise = (np.random.randn(1600) * 0.05).astype(np.float32)
+
+        def feed(asr, tag):
+            try:
+                for _ in range(30):
+                    list(asr.feed(noise))
+                print(f"  [{tag}] 推理 30 次完成")
+            except Exception as e:
+                print(f"  [{tag}] 异常:", e)
+
+        t1 = threading.Thread(target=feed, args=(a1, "引擎A"))
+        t2 = threading.Thread(target=feed, args=(a2, "引擎B"))
+        t1.start(); t2.start(); t1.join(); t2.join()
+        print("  [测试3] OK —— 两个 GPU 引擎并发推理不崩!")
+    except Exception as e:
+        print("  [测试3] 异常(非崩溃):", e)
+
+    print("\n全部测试跑完(没中途崩退就说明都不崩;崩了则最后那行 [测试X] 是元凶)。")
 
 
 if __name__ == "__main__":
