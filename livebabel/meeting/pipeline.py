@@ -1,49 +1,39 @@
-"""会议双流采集管线:麦克风("我") + 系统声音 loopback("远端")并发转录。
+"""会议双流采集管线:麦克风("我") + 系统声音 loopback("远端")。
 
-每路一个独立线程,各自一套 VadTwoPassAsr(注意:两套模型 ~1GB 内存)。
-只取 final 文本(会议要准,不要临时半句),按来源标说话人写入 MeetingRecorder。
-on_update() 在有新内容时回调,供 UI 刷新。
+崩溃根因(实测,CPU/GPU 都崩):两路音频在两个 Python 线程里【并发持续 read】
+PortAudio 输入流会原生崩溃。解法 = 回调模式 + 单消费线程:
+  * 音频用 PortAudio 回调采集(回调在 PortAudio 内部线程,我们不并发 read);
+  * 回调只把(重采样后的 16k mono)数据塞进各自队列,不做重活;
+  * 单个消费线程轮流从两个队列取数据喂各自的 ASR 引擎(单线程,无并发推理)。
+两路 ASR 引擎仍各自独立(流式状态必须隔离),但都在同一消费线程串行调用。
 """
 
 from __future__ import annotations
 
+import queue
 import threading
 from typing import Callable, List, Optional
 
+import numpy as np
+
 from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.asr.audio_source import SAMPLE_RATE
+from livebabel.asr.audio_source_windows import WasapiLoopbackSource
 from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 
-def _run_stream(source, asr: VadTwoPassAsr, speaker: str, recorder,
-                stop_flag: Callable[[], bool], on_update: Callable[[], None]) -> None:
-    """跑一路音频源 → ASR:volatile/provisional 作实时草稿,final 定稿入记录。"""
-    def handle(evt):
-        if evt.kind == "final":
-            text = evt.text.strip()
-            if text:
-                recorder.add(speaker, text)   # 定稿:入正式列表 + 清该说话人草稿
-                on_update()
-        elif evt.kind in ("volatile", "provisional"):
-            # zipformer 实时草稿:浅色显示,会被刷新/最终替换,不进纪要
-            recorder.set_draft(speaker, evt.text)
-            on_update()
-
-    try:
-        for chunk in source.frames():
-            if stop_flag():
-                break
-            for evt in asr.feed(chunk):
-                handle(evt)
-        for evt in asr.finalize():
-            handle(evt)
-    except Exception:
-        # 单路出错不应拖垮另一路;静默结束本路
-        pass
+class _Track:
+    """一路音频:设备 + 回调流 + 队列 + ASR 引擎 + 说话人标签。"""
+    def __init__(self, speaker: str):
+        self.speaker = speaker
+        self.q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=200)
+        self.asr: Optional[VadTwoPassAsr] = None
+        self.stream = None
+        self.native_rate = SAMPLE_RATE
+        self.channels = 1
 
 
 class MeetingPipeline:
-    """管理双流(或单流)会议转录的启动/停止。"""
-
     def __init__(self, recorder, on_update: Callable[[], None],
                  use_mic: bool = True, use_loopback: bool = True) -> None:
         self.recorder = recorder
@@ -51,59 +41,117 @@ class MeetingPipeline:
         self.use_mic = use_mic
         self.use_loopback = use_loopback
         self._stop = False
-        self._threads: List[threading.Thread] = []
-        self._sources: list = []
-        self._pa = None          # 双流共享的 PyAudio 实例
+        self._pa = None
+        self._tracks: List[_Track] = []
+        self._consumer: Optional[threading.Thread] = None
+
+    # ---- 设备打开(回调模式)----
+
+    def _open_track(self, pa, dev, speaker: str) -> _Track:
+        import pyaudiowpatch as pyaudio
+        tr = _Track(speaker)
+        tr.asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR)
+        tr.native_rate = int(dev["defaultSampleRate"])
+        tr.channels = max(1, int(dev["maxInputChannels"]))
+        fpb = int(tr.native_rate * 0.1)   # 100ms
+
+        def callback(in_data, frame_count, time_info, status):
+            # 回调里只做轻量:转 mono + 重采样 + 入队,绝不做 ASR
+            if self._stop:
+                return (None, pyaudio.paComplete)
+            try:
+                audio = np.frombuffer(in_data, dtype=np.float32)
+                if tr.channels > 1:
+                    n = (len(audio) // tr.channels) * tr.channels
+                    audio = audio[:n].reshape(-1, tr.channels).mean(axis=1)
+                if tr.native_rate != SAMPLE_RATE:
+                    audio = WasapiLoopbackSource._resample(audio, tr.native_rate, SAMPLE_RATE)
+                tr.q.put_nowait(audio.astype(np.float32))
+            except Exception:
+                pass   # 丢一帧不致命
+            return (None, pyaudio.paContinue)
+
+        tr.stream = pa.open(
+            format=pyaudio.paFloat32, channels=tr.channels, rate=tr.native_rate,
+            input=True, input_device_index=dev["index"],
+            frames_per_buffer=fpb, stream_callback=callback,
+        )
+        return tr
 
     def start(self) -> None:
+        import pyaudiowpatch as pyaudio
         self._stop = False
+        self._pa = pyaudio.PyAudio()
 
-        # 双流(mic+loopback)时:两个 PyAudio/WASAPI 实例【共存】会触发 PortAudio
-        # 原生崩溃(单路各自正常)。改为两路共用同一个 PyAudio 实例。
-        dual = self.use_mic and self.use_loopback
-        if dual:
-            import pyaudiowpatch as pyaudio
-            self._pa = pyaudio.PyAudio()
-
-        # 先在主线程把模型都建好(GPU 上下文别在两个线程里并发创建)。
-        specs = []   # (source, asr, speaker)
         if self.use_loopback:
-            from livebabel.asr.audio_source_windows import WasapiLoopbackSource
-            lb = WasapiLoopbackSource(pa=self._pa)
-            self._sources.append(lb)
-            specs.append((lb, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "远端"))
+            dev = WasapiLoopbackSource()._find_loopback_device(self._pa)
+            self._tracks.append(self._open_track(self._pa, dev, "远端"))
         if self.use_mic:
             from livebabel.asr.audio_source_mic import MicrophoneSource
-            mic = MicrophoneSource(pa=self._pa)
-            self._sources.append(mic)
-            specs.append((mic, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "我"))
+            dev = MicrophoneSource._pick_input_device(self._pa)
+            self._tracks.append(self._open_track(self._pa, dev, "我"))
 
-        for source, asr, speaker in specs:
-            t = threading.Thread(
-                target=_run_stream,
-                args=(source, asr, speaker, self.recorder,
-                      lambda: self._stop, self.on_update),
-                daemon=True)
-            self._threads.append(t)
-            t.start()
+        for tr in self._tracks:
+            tr.stream.start_stream()
+
+        self._consumer = threading.Thread(target=self._consume, daemon=True)
+        self._consumer.start()
+
+    # ---- 单消费线程:轮流喂两路 ASR(串行,无并发推理)----
+
+    def _consume(self) -> None:
+        def handle(evt, speaker):
+            if evt.kind == "final":
+                t = evt.text.strip()
+                if t:
+                    self.recorder.add(speaker, t)
+                    self.on_update()
+            elif evt.kind in ("volatile", "provisional"):
+                self.recorder.set_draft(speaker, evt.text)
+                self.on_update()
+
+        while not self._stop:
+            got_any = False
+            for tr in self._tracks:
+                try:
+                    chunk = tr.q.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                got_any = True
+                try:
+                    for evt in tr.asr.feed(chunk):
+                        handle(evt, tr.speaker)
+                except Exception:
+                    pass
+            if not got_any:
+                continue
+        # 收尾:flush 两路
+        for tr in self._tracks:
+            try:
+                for evt in tr.asr.finalize():
+                    handle(evt, tr.speaker)
+            except Exception:
+                pass
 
     def stop(self) -> None:
         self._stop = True
-        for s in self._sources:
+        for tr in self._tracks:
             try:
-                s.stop()
+                if tr.stream:
+                    tr.stream.stop_stream()
+                    tr.stream.close()
             except Exception:
                 pass
-        # 等采集线程退出后再销毁共享 PyAudio(避免流还在用就 terminate 崩溃)
-        for t in self._threads:
-            t.join(timeout=2.0)
+        if self._consumer:
+            self._consumer.join(timeout=3.0)
         if self._pa is not None:
             try:
                 self._pa.terminate()
             except Exception:
                 pass
             self._pa = None
+        self._tracks = []
 
     @property
     def running(self) -> bool:
-        return any(t.is_alive() for t in self._threads)
+        return self._consumer is not None and self._consumer.is_alive()
