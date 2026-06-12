@@ -39,11 +39,13 @@ def available() -> bool:
 
 
 def diarize(samples, sample_rate: int = 16000, num_speakers: int = -1,
-            cluster_threshold: float = 0.5, on_progress=None) -> List[SpkSegment]:
+            cluster_threshold: float = 0.7, on_progress=None) -> List[SpkSegment]:
     """对整段音频做说话人分离。
 
     samples: float32 mono numpy 数组(16k)。
-    num_speakers: 已知人数则传正整数;-1 表示自动聚类(用 cluster_threshold)。
+    num_speakers: 已知人数则传正整数(最准);-1 表示自动聚类(用 cluster_threshold)。
+    cluster_threshold: 自动模式的聚类阈值。实测 0.5 太敏感(单人会被切成多人),
+        默认 0.7 更稳;能指定人数就尽量指定,比自动准得多。
     返回按时间排序的 [SpkSegment]。无模型/失败抛 RuntimeError。
     """
     import numpy as np

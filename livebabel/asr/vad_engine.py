@@ -118,6 +118,8 @@ class AsrEvent:
     seg_index: int = -1
     utt_id: int = -1          # 所属语音段(utterance)的 id。同段的 provisional 共享它
     replace_seg: bool = False  # final 专用:True 表示用本段 SenseVoice 文本替换该段所有 provisional
+    audio_start: float = -1.0  # final 专用:该语音段在整段音频里的起始秒(供会后按声纹边界拆分归属)
+    audio_end: float = -1.0    # final 专用:结束秒
 
     # 向后兼容旧字段名
     @property
@@ -280,6 +282,8 @@ class VadTwoPassAsr:
         while not self.vad.empty():
             seg = self.vad.front
             seg_audio = np.array(seg.samples, dtype=np.float32)
+            a_start = seg.start / SAMPLE_RATE                       # 段在整段音频里的起止秒
+            a_end = (seg.start + len(seg_audio)) / SAMPLE_RATE
             self.vad.pop()
             refined = self._refine(seg_audio)   # SenseVoice 整段重识(高精度)
             if refined and not _is_garbage(refined):
@@ -287,6 +291,7 @@ class VadTwoPassAsr:
                 events.append(AsrEvent(
                     kind="final", text=refined, seg_index=self._next_idx(),
                     utt_id=self._utt_id, replace_seg=self._utt_had_prov,
+                    audio_start=a_start, audio_end=a_end,
                 ))
             seg_closed = True
 
