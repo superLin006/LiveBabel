@@ -106,6 +106,31 @@ class MeetingRecorder:
             self._items = new_items
             return len(order)
 
+    def apply_llm_correction(self, api_key: str = "") -> int:
+        """声纹分完后,用 LLM 按对话逻辑矫正说话人归属(只改归属,不改文字)。
+
+        只对已细分(speaker 含"-发言人")的条目矫正。返回被改动的条目数。
+        无 key / 失败则不改、返回 0。
+        """
+        from livebabel.meeting.llm_refine import refine_with_llm
+        with self._lock:
+            # 只取已细分的条(显示用当前 speaker)
+            idxs = [i for i, u in enumerate(self._items) if "-发言人" in u.speaker]
+            if not idxs:
+                return 0
+            items = [(i, self._items[i].speaker, self._items[i].text) for i in idxs]
+        # 网络请求在锁外做(别占着锁等网络)
+        mapping = refine_with_llm(items, api_key=api_key)
+        if not mapping:
+            return 0
+        changed = 0
+        with self._lock:
+            for i, spk in mapping.items():
+                if 0 <= i < len(self._items) and self._items[i].speaker != spk:
+                    self._items[i].speaker = spk
+                    changed += 1
+        return changed
+
     def _split_utterance(self, u: "Utterance", diar_segments, label_fn) -> List["Utterance"]:
         """把一条跨多说话人的转录按声纹边界拆成多条。
 
