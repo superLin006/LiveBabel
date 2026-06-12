@@ -23,6 +23,29 @@ from livebabel.asr.audio_source import SAMPLE_RATE
 from livebabel.asr.audio_source_windows import WasapiLoopbackSource
 from livebabel.paths import FIRST_DIR, SECOND_DIR
 
+# 临时音频文件前缀(会议录音落盘用,见 _Track)
+_TMP_PREFIX = "livebabel_"
+
+
+def cleanup_stale_temp() -> int:
+    """清理上次异常退出残留的会议临时音频文件(livebabel_*.s16)。启动时调用。
+
+    只删超过 1 小时没动过的,避免误删另一个正在运行实例的文件。返回删除个数。
+    """
+    import glob
+    import time
+    n = 0
+    pat = os.path.join(tempfile.gettempdir(), _TMP_PREFIX + "*.s16")
+    now = time.time()
+    for f in glob.glob(pat):
+        try:
+            if now - os.path.getmtime(f) > 3600:
+                os.remove(f)
+                n += 1
+        except OSError:
+            pass
+    return n
+
 
 class _Track:
     """一路音频:设备 + 回调流 + 队列 + ASR 引擎 + 说话人标签。

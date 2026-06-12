@@ -53,6 +53,12 @@ def main() -> None:
         ensure_cuda_dlls()
     except Exception:
         pass
+    # 清理上次异常退出残留的会议临时音频文件
+    try:
+        from livebabel.meeting.pipeline import cleanup_stale_temp
+        cleanup_stale_temp()
+    except Exception:
+        pass
     from livebabel.launcher import main as _main
     _main()
 
