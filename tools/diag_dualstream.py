@@ -4,23 +4,36 @@
     python tools/diag_dualstream.py
 逐个测试,看哪种方式不崩(崩了会直接退出,最后打印的"测试X"就是崩的那个)。
 """
+import os
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pyaudiowpatch as pyaudio
 
 
 def find_loopback(pa):
-    for d in pa.get_loopback_device_info_generator():
-        return d
+    # 用和程序完全一样的 loopback 选择逻辑
+    try:
+        from livebabel.asr.audio_source_windows import WasapiLoopbackSource
+        return WasapiLoopbackSource()._find_loopback_device(pa)
+    except Exception:
+        for d in pa.get_loopback_device_info_generator():
+            return d
     return None
 
 
 def find_mic(pa):
-    for i in range(pa.get_device_count()):
-        d = pa.get_device_info_by_index(i)
-        if d.get("maxInputChannels", 0) > 0 and "loopback" not in str(d["name"]).lower():
-            return d
+    # 用和程序完全一样的麦克风选择逻辑(复现真实设备)
+    try:
+        from livebabel.asr.audio_source_mic import MicrophoneSource
+        return MicrophoneSource._pick_input_device(pa)
+    except Exception:
+        for i in range(pa.get_device_count()):
+            d = pa.get_device_info_by_index(i)
+            if d.get("maxInputChannels", 0) > 0 and "loopback" not in str(d["name"]).lower():
+                return d
     return None
 
 
