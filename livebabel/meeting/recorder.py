@@ -89,11 +89,19 @@ class MeetingRecorder:
                     u.speaker = _label(sid) if sid is not None else u.speaker
                     new_items.append(u)
                     continue
-                if len(overlaps) == 1:
-                    u.speaker = _label(next(iter(overlaps)))
+                # 取占比:主导说话人 + 次说话人
+                ranked = sorted(overlaps.items(), key=lambda kv: -kv[1])
+                tot = sum(overlaps.values()) or 1.0
+                top_sid, top_dur = ranked[0]
+                second_share = (ranked[1][1] / tot) if len(ranked) > 1 else 0.0
+                second_dur = ranked[1][1] if len(ranked) > 1 else 0.0
+                # 仅当次说话人占比足够大(≥35%)且时长够(≥2s)才真正拆分——
+                # 否则视为主导说话人整条(避免重叠窗噪声把短句切碎)
+                if second_share < 0.35 or second_dur < 2.0:
+                    u.speaker = _label(top_sid)
                     new_items.append(u)
                     continue
-                # 跨多人:按时长占比拆分文字(无字级时间戳,按比例粗分,顺序按时间)
+                # 跨多人且次说话人占比可观:按声纹边界拆分
                 new_items.extend(self._split_utterance(u, diar_segments, _label))
             self._items = new_items
             return len(order)

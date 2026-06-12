@@ -176,7 +176,9 @@ class MeetingWindow(QWidget):
         # 会后说话人分离:把"远端"细分成多个发言人
         head_row.addWidget(QLabel("远端人数"))
         self.spk_count = QComboBox()
-        self.spk_count.addItems(["自动", "2", "3", "4", "5", "6"])
+        self.spk_count.addItems(["2", "3", "4", "5", "6", "自动"])  # 默认 2 人,指定最准
+        self.spk_count.setCurrentIndex(0)
+        self.spk_count.setToolTip("已知远端有几个人就选几人(最准);「自动」效果不稳定")
         head_row.addWidget(self.spk_count)
         self.diar_btn = QPushButton("区分说话人")
         self.diar_btn.clicked.connect(self._diarize)
