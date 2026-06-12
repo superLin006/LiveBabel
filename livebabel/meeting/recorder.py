@@ -21,6 +21,8 @@ class Utterance:
     draft: bool = False      # 是否未定稿草稿(zipformer 实时文本,浅色)
     a_start: float = -1.0    # 该段在本路音频里的起止秒(供会后按声纹边界拆分归属)
     a_end: float = -1.0
+    tokens: list = None      # token 文本列表(SenseVoice)
+    timestamps: list = None  # 每个 token 的绝对秒(供精确按字时间拆分)
 
 
 class MeetingRecorder:
@@ -92,8 +94,37 @@ class MeetingRecorder:
             return len(order)
 
     def _split_utterance(self, u: "Utterance", diar_segments, label_fn) -> List["Utterance"]:
-        """把一条跨多说话人的转录,按声纹分段的时间顺序拆成多条,文字按时长比例分配。"""
-        # 取与该段重叠的声纹片段,按时间排序;相邻同一说话人合并
+        """把一条跨多说话人的转录按声纹边界拆成多条。
+
+        优先用 SenseVoice 的 token 时间戳【精确按字时间】拆:每个 token 落到它时间点
+        所属的声纹说话人,连续同说话人的 token 合成一条。无时间戳则退化为按时长比例粗切。
+        """
+        from livebabel.meeting.diarize import speaker_at
+        # —— 精确路径:有 token 时间戳 ——
+        if u.tokens and u.timestamps and len(u.tokens) == len(u.timestamps):
+            out: List[Utterance] = []
+            cur_sid = None
+            cur_toks: list = []
+
+            def flush():
+                if cur_toks and cur_sid is not None:
+                    txt = "".join(cur_toks).strip()
+                    if txt:
+                        out.append(Utterance(t=u.t, speaker=label_fn(cur_sid), text=txt,
+                                             is_me=False, a_start=u.a_start, a_end=u.a_end))
+            for tok, ts in zip(u.tokens, u.timestamps):
+                sid = speaker_at(diar_segments, ts)
+                if sid != cur_sid:
+                    flush()
+                    cur_sid, cur_toks = sid, []
+                cur_toks.append(tok)
+            flush()
+            if out:
+                return out
+            # 退化(全程没匹配到):返回原条
+            return [u]
+
+        # —— 退化路径:按时长比例粗切 ——
         pieces = []  # (speaker_id, dur)
         for s in sorted(diar_segments, key=lambda x: x.start):
             lo, hi = max(u.a_start, s.start), min(u.a_end, s.end)
@@ -123,17 +154,20 @@ class MeetingRecorder:
                                      is_me=False, a_start=u.a_start, a_end=u.a_end))
         return out if out else [u]
 
-    def add(self, speaker: str, text: str, a_start: float = -1.0, a_end: float = -1.0) -> None:
+    def add(self, speaker: str, text: str, a_start: float = -1.0, a_end: float = -1.0,
+            tokens=None, timestamps=None) -> None:
         """定稿一条(SenseVoice 最终文本):入正式列表,并清掉该说话人的草稿。
 
-        a_start/a_end: 该段在本路音频里的起止秒(供会后按声纹边界拆分归属)。
+        a_start/a_end: 该段在本路音频里的起止秒;tokens/timestamps: token 级文本+绝对秒,
+        供会后按声纹边界【精确按字时间】拆分归属。
         """
         text = text.strip()
         if not text:
             return
         with self._lock:
-            self._items.append(Utterance(t=time.time() - self._t0, speaker=speaker, text=text,
-                                         a_start=a_start, a_end=a_end))
+            self._items.append(Utterance(
+                t=time.time() - self._t0, speaker=speaker, text=text,
+                a_start=a_start, a_end=a_end, tokens=tokens, timestamps=timestamps))
             self._drafts.pop(speaker, None)
 
     def set_draft(self, speaker: str, text: str) -> None:
