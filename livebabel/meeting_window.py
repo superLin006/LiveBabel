@@ -272,6 +272,12 @@ class MeetingWindow(QWidget):
                 return
             use_mic = False
             self.status.setText("未检测到麦克风,本次只录系统声音(远端)。")
+        # 清掉上一场的临时音频文件,避免泄漏
+        if self.pipeline is not None:
+            try:
+                self.pipeline.cleanup()
+            except Exception:
+                pass
         self.recorder.reset()
         self.transcript_list.clear()
         self._bubble_count = 0
@@ -514,4 +520,10 @@ class MeetingWindow(QWidget):
                 e.ignore()
                 return
             self.pipeline.stop()
+        # 清理临时音频文件
+        if self.pipeline is not None:
+            try:
+                self.pipeline.cleanup()
+            except Exception:
+                pass
         e.accept()

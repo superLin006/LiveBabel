@@ -11,6 +11,8 @@ PortAudio 输入流会原生崩溃。解法 = 回调模式 + 单消费线程:
 from __future__ import annotations
 
 import queue
+import os
+import tempfile
 import threading
 from typing import Callable, List, Optional
 
@@ -23,7 +25,11 @@ from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 
 class _Track:
-    """一路音频:设备 + 回调流 + 队列 + ASR 引擎 + 说话人标签。"""
+    """一路音频:设备 + 回调流 + 队列 + ASR 引擎 + 说话人标签。
+
+    音频【边录边追加写临时 raw 文件(int16)】供会后声纹分离,不在内存累积,
+    避免长会议爆内存(16k float32 双流约 460MB/小时;int16 文件约 115MB/小时/路)。
+    """
     def __init__(self, speaker: str):
         self.speaker = speaker
         self.q: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=200)
@@ -31,7 +37,42 @@ class _Track:
         self.stream = None
         self.native_rate = SAMPLE_RATE
         self.channels = 1
-        self.audio_chunks: list = []   # 累积的 16k mono 音频(供会后说话人分离)
+        # 临时 raw 文件(16k mono int16),边录边追加
+        fd, self.audio_path = tempfile.mkstemp(suffix=".s16", prefix="livebabel_%s_" % speaker)
+        os.close(fd)
+        self._audio_f = open(self.audio_path, "wb", buffering=1024 * 256)
+
+    def write_audio(self, chunk: np.ndarray) -> None:
+        # float32 [-1,1] → int16,写文件(不留内存)
+        try:
+            i16 = np.clip(chunk, -1.0, 1.0)
+            i16 = (i16 * 32767.0).astype(np.int16)
+            self._audio_f.write(i16.tobytes())
+        except Exception:
+            pass
+
+    def close_audio(self) -> None:
+        try:
+            self._audio_f.close()
+        except Exception:
+            pass
+
+    def read_audio(self) -> "np.ndarray":
+        """读回整段音频为 float32(会后声纹用)。"""
+        try:
+            with open(self.audio_path, "rb") as f:
+                data = f.read()
+            i16 = np.frombuffer(data, dtype=np.int16)
+            return (i16.astype(np.float32) / 32767.0)
+        except Exception:
+            return np.zeros(0, dtype=np.float32)
+
+    def cleanup(self) -> None:
+        self.close_audio()
+        try:
+            os.remove(self.audio_path)
+        except OSError:
+            pass
 
 
 class MeetingPipeline:
@@ -44,6 +85,7 @@ class MeetingPipeline:
         self._stop = False
         self._pa = None
         self._tracks: List[_Track] = []
+        self._done_tracks: List[_Track] = []   # 停止后留存(音频文件供会后声纹)
         self._consumer: Optional[threading.Thread] = None
         self._shared_first = None    # 两路共享的 zipformer/SenseVoice
         self._shared_second = None
@@ -128,7 +170,7 @@ class MeetingPipeline:
                 except queue.Empty:
                     continue
                 got_any = True
-                tr.audio_chunks.append(chunk)   # 累积音频供会后说话人分离
+                tr.write_audio(chunk)   # 边录边写临时文件(不占内存)
                 try:
                     for evt in tr.asr.feed(chunk):
                         handle(evt, tr.speaker)
@@ -161,20 +203,28 @@ class MeetingPipeline:
             except Exception:
                 pass
             self._pa = None
-        # 停止前把各路累积音频留存(供会后说话人分离),再清 tracks
-        import numpy as np
-        self._audio = {}
+        # 关音频文件,保留路径(供会后说话人分离从文件读),tracks 移到 _done_tracks
         for tr in self._tracks:
-            if tr.audio_chunks:
-                self._audio[tr.speaker] = np.concatenate(tr.audio_chunks)
+            tr.close_audio()
+        self._done_tracks = self._tracks   # 留着,get_audio / cleanup 用
         self._tracks = []
         # 释放共享模型,回收内存
         self._shared_first = None
         self._shared_second = None
 
     def get_audio(self, speaker: str):
-        """返回某路累积的 16k mono 音频(numpy),没有返回 None。会后说话人分离用。"""
-        return getattr(self, "_audio", {}).get(speaker)
+        """从临时文件读回某路 16k mono 音频(float32),没有返回 None。会后说话人分离用。"""
+        for tr in getattr(self, "_done_tracks", []):
+            if tr.speaker == speaker:
+                a = tr.read_audio()
+                return a if len(a) else None
+        return None
+
+    def cleanup(self) -> None:
+        """删除所有临时音频文件(会议窗关闭/重开时调用)。"""
+        for tr in getattr(self, "_done_tracks", []) + self._tracks:
+            tr.cleanup()
+        self._done_tracks = []
 
     @property
     def running(self) -> bool:
