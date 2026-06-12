@@ -52,21 +52,43 @@ def diarize(samples, sample_rate: int = 16000, num_speakers: int = -1,
     if not available():
         raise RuntimeError("缺少说话人分离模型(segmentation / embedding)。")
 
-    cfg = sherpa_onnx.OfflineSpeakerDiarizationConfig(
-        segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
-            pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
-                model=_seg_model()),
-        ),
-        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=_emb_model()),
-        clustering=sherpa_onnx.FastClusteringConfig(
-            num_clusters=int(num_speakers), threshold=float(cluster_threshold)),
-        min_duration_on=0.3,
-        min_duration_off=0.5,
-    )
+    # 有 GPU 就用 GPU(声纹嵌入提取是大头,GPU 能快很多);先注册 CUDA DLL
+    from livebabel.asr.vad_engine import detect_provider
+    prov = detect_provider()
+    if prov == "cuda":
+        try:
+            from livebabel.offline.cuda_dll import ensure_cuda_dlls
+            ensure_cuda_dlls()
+        except Exception:
+            pass
+
+    def _make_cfg(provider):
+        return sherpa_onnx.OfflineSpeakerDiarizationConfig(
+            segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
+                pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
+                    model=_seg_model()),
+                provider=provider, num_threads=2,
+            ),
+            embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(
+                model=_emb_model(), provider=provider, num_threads=2),
+            clustering=sherpa_onnx.FastClusteringConfig(
+                num_clusters=int(num_speakers), threshold=float(cluster_threshold)),
+            min_duration_on=0.3,
+            min_duration_off=0.5,
+        )
+
+    cfg = _make_cfg(prov)
     if not cfg.validate():
         raise RuntimeError("说话人分离配置无效(模型路径/格式不对)。")
 
-    sd = sherpa_onnx.OfflineSpeakerDiarization(cfg)
+    # GPU 构建失败(缺库等)自动回退 CPU
+    try:
+        sd = sherpa_onnx.OfflineSpeakerDiarization(cfg)
+    except Exception:
+        if prov == "cuda":
+            sd = sherpa_onnx.OfflineSpeakerDiarization(_make_cfg("cpu"))
+        else:
+            raise
     audio = np.ascontiguousarray(samples, dtype=np.float32)
 
     if on_progress:

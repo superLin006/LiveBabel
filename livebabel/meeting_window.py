@@ -78,6 +78,7 @@ class _Bridge(QObject):
     minutes_fail = Signal(str)
     diar_ok = Signal(int)       # 细分出的发言人数
     diar_fail = Signal(str)
+    diar_progress = Signal(int) # 0-100
 
 
 class MeetingWindow(QWidget):
@@ -101,6 +102,8 @@ class MeetingWindow(QWidget):
         self.bridge.minutes_fail.connect(self._on_minutes_fail)
         self.bridge.diar_ok.connect(self._on_diar_ok)
         self.bridge.diar_fail.connect(self._on_diar_fail)
+        self.bridge.diar_progress.connect(
+            lambda p: self.status.setText(f"正在分析声纹区分说话人… {p}%"))
         # 转录刷新做节流,避免高频信号刷爆 UI
         self._dirty = False
         self._refresh_timer = QTimer(self)
@@ -389,7 +392,10 @@ class MeetingWindow(QWidget):
 
         def work():
             try:
-                segs = diar.diarize(audio, num_speakers=num)
+                def prog(done, total):
+                    if total:
+                        self.bridge.diar_progress.emit(int(100 * done / total))
+                segs = diar.diarize(audio, num_speakers=num, on_progress=prog)
                 n = self.recorder.refine_speaker("远端", segs)
                 self.bridge.diar_ok.emit(n)
             except Exception as e:
