@@ -31,6 +31,7 @@ class _Track:
         self.stream = None
         self.native_rate = SAMPLE_RATE
         self.channels = 1
+        self.audio_chunks: list = []   # 累积的 16k mono 音频(供会后说话人分离)
 
 
 class MeetingPipeline:
@@ -127,6 +128,7 @@ class MeetingPipeline:
                 except queue.Empty:
                     continue
                 got_any = True
+                tr.audio_chunks.append(chunk)   # 累积音频供会后说话人分离
                 try:
                     for evt in tr.asr.feed(chunk):
                         handle(evt, tr.speaker)
@@ -159,10 +161,20 @@ class MeetingPipeline:
             except Exception:
                 pass
             self._pa = None
+        # 停止前把各路累积音频留存(供会后说话人分离),再清 tracks
+        import numpy as np
+        self._audio = {}
+        for tr in self._tracks:
+            if tr.audio_chunks:
+                self._audio[tr.speaker] = np.concatenate(tr.audio_chunks)
         self._tracks = []
         # 释放共享模型,回收内存
         self._shared_first = None
         self._shared_second = None
+
+    def get_audio(self, speaker: str):
+        """返回某路累积的 16k mono 音频(numpy),没有返回 None。会后说话人分离用。"""
+        return getattr(self, "_audio", {}).get(speaker)
 
     @property
     def running(self) -> bool:

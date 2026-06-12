@@ -76,6 +76,8 @@ class _Bridge(QObject):
     transcript_dirty = Signal()
     minutes_ok = Signal(str)
     minutes_fail = Signal(str)
+    diar_ok = Signal(int)       # 细分出的发言人数
+    diar_fail = Signal(str)
 
 
 class MeetingWindow(QWidget):
@@ -97,6 +99,8 @@ class MeetingWindow(QWidget):
         self.bridge.transcript_dirty.connect(self._mark_dirty)
         self.bridge.minutes_ok.connect(self._on_minutes_ok)
         self.bridge.minutes_fail.connect(self._on_minutes_fail)
+        self.bridge.diar_ok.connect(self._on_diar_ok)
+        self.bridge.diar_fail.connect(self._on_diar_fail)
         # 转录刷新做节流,避免高频信号刷爆 UI
         self._dirty = False
         self._refresh_timer = QTimer(self)
@@ -166,7 +170,15 @@ class MeetingWindow(QWidget):
         head_row = QHBoxLayout()
         head_row.addWidget(self._section("实时转录"))
         head_row.addStretch(1)
-        self.rename_btn = QPushButton("重命名说话人…")
+        # 会后说话人分离:把"远端"细分成多个发言人
+        head_row.addWidget(QLabel("远端人数"))
+        self.spk_count = QComboBox()
+        self.spk_count.addItems(["自动", "2", "3", "4", "5", "6"])
+        head_row.addWidget(self.spk_count)
+        self.diar_btn = QPushButton("区分说话人")
+        self.diar_btn.clicked.connect(self._diarize)
+        head_row.addWidget(self.diar_btn)
+        self.rename_btn = QPushButton("重命名…")
         self.rename_btn.clicked.connect(self._rename_speaker)
         head_row.addWidget(self.rename_btn)
         root.addLayout(head_row)
@@ -342,6 +354,63 @@ class MeetingWindow(QWidget):
             self._draft_items += 1
 
         lst.scrollToBottom()
+
+    # ---- 会后说话人分离(声纹)----
+
+    def _diarize(self) -> None:
+        if self._busy:
+            return
+        if self.pipeline and self.pipeline.running:
+            info(self, "请先停止录制", "区分说话人需在录制结束后进行。")
+            return
+        from livebabel.meeting import diarize as diar
+        if not diar.available():
+            error(self, "缺少声纹模型",
+                  "未找到说话人分离模型(segmentation / embedding)。\n"
+                  "请运行 download_models 下载,或放到 models\\ 目录。")
+            return
+        audio = self.pipeline.get_audio("远端") if self.pipeline else None
+        if audio is None or len(audio) < 16000:
+            info(self, "无可分析音频", "没有录到足够的「远端」音频用于区分说话人。")
+            return
+        sel = self.spk_count.currentText()
+        num = -1 if sel == "自动" else int(sel)
+
+        self._busy = True
+        self.diar_btn.setEnabled(False)
+        self.diar_btn.setText("分析中…")
+        self.status.setText("正在分析声纹区分说话人…(整段处理,较慢请稍候)")
+
+        def work():
+            try:
+                segs = diar.diarize(audio, num_speakers=num)
+                n = self.recorder.refine_speaker("远端", segs)
+                self.bridge.diar_ok.emit(n)
+            except Exception as e:
+                self.bridge.diar_fail.emit(f"{type(e).__name__}: {e}")
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_diar_ok(self, n: int) -> None:
+        self._busy = False
+        self.diar_btn.setEnabled(True)
+        self.diar_btn.setText("区分说话人")
+        # 重命名影响气泡 → 全量重建
+        self.transcript_list.clear()
+        self._bubble_count = 0
+        self._draft_items = 0
+        self._refresh_transcript()
+        if n > 1:
+            self.status.setText(f"✓ 远端已区分为 {n} 位发言人(可再重命名)")
+        else:
+            self.status.setText("✓ 分析完成:远端只识别到 1 位发言人")
+
+    def _on_diar_fail(self, msg: str) -> None:
+        self._busy = False
+        self.diar_btn.setEnabled(True)
+        self.diar_btn.setText("区分说话人")
+        self.status.setText("✗ 区分说话人失败")
+        error(self, "区分说话人失败", msg)
 
     # ---- 说话人重命名 ----
 
