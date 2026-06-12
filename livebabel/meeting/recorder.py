@@ -17,6 +17,7 @@ class Utterance:
     t: float                 # 相对会议开始的秒数(定稿时刻,供 UI 显示)
     speaker: str             # 说话人标签("我" / "远端" / 重命名后的真名)
     text: str
+    base: str = ""           # 原始路标签("我"/"远端"),声纹细分/重跑都按它匹配,不受 speaker 改写影响
     is_me: bool = False      # 是否本机用户("我"那一路),供 UI 气泡左右/配色
     draft: bool = False      # 是否未定稿草稿(zipformer 实时文本,浅色)
     a_start: float = -1.0    # 该段在本路音频里的起止秒(供会后按声纹边界拆分归属)
@@ -52,19 +53,23 @@ class MeetingRecorder:
           * 跨多个说话人 → 按各说话人在该区间的时长占比【拆分文字】,各归各人
         没有音频区间(a_start<0)的旧数据退化为按定稿时刻 t 取最近段。
         返回细分出的发言人数量(编号按出现顺序 1,2,3…)。
+
+        按 u.base(原始路标签)匹配而非 u.speaker:① 重复点击可重跑(上轮已改名的也能再分);
+        ② 若用户已重命名 base(远端→Alice),显示名带重命名前缀(Alice-发言人N),不丢失重命名。
         """
         from livebabel.meeting.diarize import speaker_at
         with self._lock:
+            disp_base = self._rename.get(base_speaker, base_speaker)  # base 已重命名则沿用
             order: dict = {}          # 原始聚类号 → 顺序号
             def _label(sid):
                 nonlocal order
                 if sid not in order:
                     order[sid] = len(order) + 1
-                return label_fmt.format(base=base_speaker, n=order[sid])
+                return label_fmt.format(base=disp_base, n=order[sid])
 
             new_items: List[Utterance] = []
             for u in self._items:
-                if u.speaker != base_speaker:
+                if u.base != base_speaker:
                     new_items.append(u)
                     continue
                 # 无音频区间(旧数据):按定稿时刻取最近段
@@ -106,18 +111,23 @@ class MeetingRecorder:
             cur_sid = None
             cur_toks: list = []
 
+            cur_ts: list = []
+
             def flush():
                 if cur_toks and cur_sid is not None:
                     txt = "".join(cur_toks).strip()
                     if txt:
                         out.append(Utterance(t=u.t, speaker=label_fn(cur_sid), text=txt,
-                                             is_me=False, a_start=u.a_start, a_end=u.a_end))
+                                             base=u.base, is_me=False,
+                                             a_start=u.a_start, a_end=u.a_end,
+                                             tokens=list(cur_toks), timestamps=list(cur_ts)))
             for tok, ts in zip(u.tokens, u.timestamps):
                 sid = speaker_at(diar_segments, ts)
                 if sid != cur_sid:
                     flush()
-                    cur_sid, cur_toks = sid, []
+                    cur_sid, cur_toks, cur_ts = sid, [], []
                 cur_toks.append(tok)
+                cur_ts.append(ts)
             flush()
             if out:
                 return out
@@ -145,13 +155,22 @@ class MeetingRecorder:
         idx = 0
         n = len(text)
         for k, (sid, dur) in enumerate(pieces):
-            # 最后一段吃掉剩余,避免取整丢字
-            take = n - idx if k == len(pieces) - 1 else max(1, round(n * dur / total))
+            remain = n - idx
+            if remain <= 0:
+                break                       # 文字已分完(前面取整偶有多占),后续 piece 跳过
+            # 最后一段吃掉剩余;否则按比例取,且不超过剩余、至少留够后面每段 1 字
+            if k == len(pieces) - 1:
+                take = remain
+            else:
+                take = max(1, round(n * dur / total))
+                take = min(take, remain - (len(pieces) - 1 - k))  # 给后面每段至少留 1
+                take = max(1, take)
             chunk = text[idx:idx + take].strip()
             idx += take
             if chunk:
                 out.append(Utterance(t=u.t, speaker=label_fn(sid), text=chunk,
-                                     is_me=False, a_start=u.a_start, a_end=u.a_end))
+                                     base=u.base, is_me=False,
+                                     a_start=u.a_start, a_end=u.a_end))
         return out if out else [u]
 
     def add(self, speaker: str, text: str, a_start: float = -1.0, a_end: float = -1.0,
@@ -166,7 +185,7 @@ class MeetingRecorder:
             return
         with self._lock:
             self._items.append(Utterance(
-                t=time.time() - self._t0, speaker=speaker, text=text,
+                t=time.time() - self._t0, speaker=speaker, text=text, base=speaker,
                 a_start=a_start, a_end=a_end, tokens=tokens, timestamps=timestamps))
             self._drafts.pop(speaker, None)
 

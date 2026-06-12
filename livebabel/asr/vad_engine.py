@@ -349,12 +349,17 @@ class VadTwoPassAsr:
         while not self.vad.empty():
             seg = self.vad.front
             seg_audio = np.array(seg.samples, dtype=np.float32)
+            a_start = seg.start / SAMPLE_RATE
+            a_end = (seg.start + len(seg_audio)) / SAMPLE_RATE
             self.vad.pop()
-            refined = self._refine(seg_audio)
+            refined, toks, ts = self._refine_timed(seg_audio)
             if refined and not _is_garbage(refined):
+                abs_ts = [a_start + x for x in ts]
                 events.append(AsrEvent(
                     kind="final", text=refined, seg_index=self._next_idx(),
                     utt_id=self._utt_id, replace_seg=self._utt_had_prov,
+                    audio_start=a_start, audio_end=a_end,
+                    tokens=toks, timestamps=abs_ts,
                 ))
             self._utt_had_prov = False
             self._utt_id += 1
