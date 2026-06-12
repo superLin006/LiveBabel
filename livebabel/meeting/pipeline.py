@@ -57,30 +57,37 @@ class MeetingPipeline:
     def start(self) -> None:
         self._stop = False
 
-        if self.use_mic:
-            from livebabel.asr.audio_source_mic import MicrophoneSource
-            mic = MicrophoneSource()
-            self._sources.append(mic)
-            asr_mic = VadTwoPassAsr(FIRST_DIR, SECOND_DIR)
-            self._threads.append(threading.Thread(
-                target=_run_stream,
-                args=(mic, asr_mic, "我", self.recorder,
-                      lambda: self._stop, self.on_update),
-                daemon=True))
-
+        # 先在主线程把模型都建好(GPU 上下文别在两个线程里并发创建)。
+        specs = []   # (source, asr, speaker, start_delay)
         if self.use_loopback:
             from livebabel.asr.audio_source_windows import WasapiLoopbackSource
             lb = WasapiLoopbackSource()
             self._sources.append(lb)
-            asr_lb = VadTwoPassAsr(FIRST_DIR, SECOND_DIR)
-            self._threads.append(threading.Thread(
-                target=_run_stream,
-                args=(lb, asr_lb, "远端", self.recorder,
-                      lambda: self._stop, self.on_update),
-                daemon=True))
+            specs.append((lb, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "远端", 0.0))
+        if self.use_mic:
+            from livebabel.asr.audio_source_mic import MicrophoneSource
+            mic = MicrophoneSource()
+            self._sources.append(mic)
+            # 麦克风延后启动:两个 PyAudio/WASAPI 实例【同一瞬间】初始化会触发
+            # PortAudio 原生崩溃(单路各自正常,双路并发挂)。错开 ~1s 规避。
+            specs.append((mic, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "我", 1.0))
 
-        for t in self._threads:
+        for source, asr, speaker, delay in specs:
+            t = threading.Thread(
+                target=self._stream_with_delay,
+                args=(delay, source, asr, speaker),
+                daemon=True)
+            self._threads.append(t)
             t.start()
+
+    def _stream_with_delay(self, delay, source, asr, speaker) -> None:
+        import time
+        if delay:
+            time.sleep(delay)
+        if self._stop:
+            return
+        _run_stream(source, asr, speaker, self.recorder,
+                    lambda: self._stop, self.on_update)
 
     def stop(self) -> None:
         self._stop = True
