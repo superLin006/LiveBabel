@@ -53,41 +53,39 @@ class MeetingPipeline:
         self._stop = False
         self._threads: List[threading.Thread] = []
         self._sources: list = []
+        self._pa = None          # 双流共享的 PyAudio 实例
 
     def start(self) -> None:
         self._stop = False
 
+        # 双流(mic+loopback)时:两个 PyAudio/WASAPI 实例【共存】会触发 PortAudio
+        # 原生崩溃(单路各自正常)。改为两路共用同一个 PyAudio 实例。
+        dual = self.use_mic and self.use_loopback
+        if dual:
+            import pyaudiowpatch as pyaudio
+            self._pa = pyaudio.PyAudio()
+
         # 先在主线程把模型都建好(GPU 上下文别在两个线程里并发创建)。
-        specs = []   # (source, asr, speaker, start_delay)
+        specs = []   # (source, asr, speaker)
         if self.use_loopback:
             from livebabel.asr.audio_source_windows import WasapiLoopbackSource
-            lb = WasapiLoopbackSource()
+            lb = WasapiLoopbackSource(pa=self._pa)
             self._sources.append(lb)
-            specs.append((lb, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "远端", 0.0))
+            specs.append((lb, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "远端"))
         if self.use_mic:
             from livebabel.asr.audio_source_mic import MicrophoneSource
-            mic = MicrophoneSource()
+            mic = MicrophoneSource(pa=self._pa)
             self._sources.append(mic)
-            # 麦克风延后启动:两个 PyAudio/WASAPI 实例【同一瞬间】初始化会触发
-            # PortAudio 原生崩溃(单路各自正常,双路并发挂)。错开 ~1s 规避。
-            specs.append((mic, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "我", 1.0))
+            specs.append((mic, VadTwoPassAsr(FIRST_DIR, SECOND_DIR), "我"))
 
-        for source, asr, speaker, delay in specs:
+        for source, asr, speaker in specs:
             t = threading.Thread(
-                target=self._stream_with_delay,
-                args=(delay, source, asr, speaker),
+                target=_run_stream,
+                args=(source, asr, speaker, self.recorder,
+                      lambda: self._stop, self.on_update),
                 daemon=True)
             self._threads.append(t)
             t.start()
-
-    def _stream_with_delay(self, delay, source, asr, speaker) -> None:
-        import time
-        if delay:
-            time.sleep(delay)
-        if self._stop:
-            return
-        _run_stream(source, asr, speaker, self.recorder,
-                    lambda: self._stop, self.on_update)
 
     def stop(self) -> None:
         self._stop = True
@@ -96,6 +94,15 @@ class MeetingPipeline:
                 s.stop()
             except Exception:
                 pass
+        # 等采集线程退出后再销毁共享 PyAudio(避免流还在用就 terminate 崩溃)
+        for t in self._threads:
+            t.join(timeout=2.0)
+        if self._pa is not None:
+            try:
+                self._pa.terminate()
+            except Exception:
+                pass
+            self._pa = None
 
     @property
     def running(self) -> bool:
