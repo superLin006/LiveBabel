@@ -24,9 +24,10 @@ from livebabel.asr.audio_source import SAMPLE_RATE, AudioSource
 
 
 class WasapiLoopbackSource(AudioSource):
-    def __init__(self, chunk_ms: int = 100) -> None:
+    def __init__(self, chunk_ms: int = 100, pa=None) -> None:
         self.chunk_ms = chunk_ms
         self._stop = False
+        self._pa = pa            # 共享的 PyAudio 实例(会议双流用同一个,避免多实例共存崩溃)
 
     def stop(self) -> None:
         self._stop = True
@@ -54,40 +55,49 @@ class WasapiLoopbackSource(AudioSource):
             and pa.get_device_info_by_index(i).get("maxOutputChannels", 0) > 0
         ]
         outputs.sort(key=lambda d: d["index"])
-        loopbacks = sorted(pa.get_loopback_device_info_generator(), key=lambda d: d["index"])
+        # 只保留【可用】的 loopback:必须有输入声道(ch>0)。否则用 ch=0 设备
+        # pa.open 会触发 PortAudio 原生崩溃(双流共享 PyAudio 时尤其会枚举到 ch=0 项)。
+        loopbacks = [d for d in pa.get_loopback_device_info_generator()
+                     if d.get("maxInputChannels", 0) > 0]
+        loopbacks.sort(key=lambda d: d["index"])
 
         if not loopbacks:
-            raise RuntimeError("未找到任何 loopback 设备(请确认已安装 pyaudiowpatch)。")
+            raise RuntimeError("未找到任何可用 loopback 设备(请确认已安装 pyaudiowpatch)。")
+
+        def _valid(dev):
+            # 双保险:返回的设备必须真能录(ch>0),否则视为无效
+            return dev is not None and dev.get("maxInputChannels", 0) > 0
 
         # 1) 序号一一对应(最可靠,能区分同名设备)
         try:
             pos = next(i for i, d in enumerate(outputs) if d["index"] == default_idx)
-            if pos < len(loopbacks):
+            if pos < len(loopbacks) and _valid(loopbacks[pos]):
                 return loopbacks[pos]
         except StopIteration:
             pass
 
         # 2) 名字前缀匹配
         for dev in loopbacks:
-            if dev["name"].startswith(target):
+            if dev["name"].startswith(target) and _valid(dev):
                 return dev
 
-        # 3) 官方 API
+        # 3) 官方 API(仍要校验 ch>0)
         try:
             dev = pa.get_default_wasapi_loopback()
-            if dev is not None:
+            if _valid(dev):
                 return dev
         except Exception:
             pass
 
-        # 4) 兜底:第一个 loopback
+        # 4) 兜底:第一个【可用】 loopback
         return loopbacks[0]
 
     def frames(self) -> Iterator[np.ndarray]:
         import sys
         import pyaudiowpatch as pyaudio
 
-        pa = pyaudio.PyAudio()
+        own_pa = self._pa is None       # 自己建的才负责 terminate
+        pa = self._pa or pyaudio.PyAudio()
         try:
             dev = self._find_loopback_device(pa)
             print(f"[audio] 抓取设备: {dev['name']} (index={dev['index']}, "
@@ -96,6 +106,10 @@ class WasapiLoopbackSource(AudioSource):
 
             native_rate = int(dev["defaultSampleRate"])
             channels = int(dev["maxInputChannels"])
+            if channels < 1:
+                # 绝不用 0 声道 open(会原生崩溃);此时设备无效,直接报错让上层处理
+                raise RuntimeError(
+                    f"loopback 设备「{dev['name']}」无输入声道(ch=0),无法录制。")
             frames_per_buffer = int(native_rate * self.chunk_ms / 1000)
             stream = pa.open(
                 format=pyaudio.paFloat32, channels=channels, rate=native_rate,
@@ -124,7 +138,8 @@ class WasapiLoopbackSource(AudioSource):
                 except Exception:
                     pass
         finally:
-            pa.terminate()
+            if own_pa:           # 共享实例不在这里销毁(由创建者统一管理)
+                pa.terminate()
 
     @staticmethod
     def _resample(audio: np.ndarray, src: int, dst: int) -> np.ndarray:

@@ -21,10 +21,11 @@ from livebabel.asr.audio_source_windows import WasapiLoopbackSource
 
 
 class MicrophoneSource(AudioSource):
-    def __init__(self, chunk_ms: int = 100, device_index: Optional[int] = None) -> None:
+    def __init__(self, chunk_ms: int = 100, device_index: Optional[int] = None, pa=None) -> None:
         self.chunk_ms = chunk_ms
         self.device_index = device_index   # None=默认输入设备
         self._stop = False
+        self._pa = pa            # 共享的 PyAudio 实例(会议双流用同一个,避免多实例共存崩溃)
 
     def stop(self) -> None:
         self._stop = True
@@ -74,7 +75,8 @@ class MicrophoneSource(AudioSource):
         import sys
         import pyaudiowpatch as pyaudio
 
-        pa = pyaudio.PyAudio()
+        own_pa = self._pa is None       # 自己建的才负责 terminate
+        pa = self._pa or pyaudio.PyAudio()
         try:
             if self.device_index is not None:
                 dev = pa.get_device_info_by_index(self.device_index)
@@ -122,4 +124,5 @@ class MicrophoneSource(AudioSource):
                 except Exception:
                     pass
         finally:
-            pa.terminate()
+            if own_pa:           # 共享实例不在这里销毁(由创建者统一管理)
+                pa.terminate()
