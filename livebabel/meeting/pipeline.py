@@ -44,13 +44,18 @@ class MeetingPipeline:
         self._pa = None
         self._tracks: List[_Track] = []
         self._consumer: Optional[threading.Thread] = None
+        self._shared_first = None    # 两路共享的 zipformer/SenseVoice
+        self._shared_second = None
 
     # ---- 设备打开(回调模式)----
 
     def _open_track(self, pa, dev, speaker: str) -> _Track:
         import pyaudiowpatch as pyaudio
         tr = _Track(speaker)
-        tr.asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR)
+        # 共享模型权重(两路只加载一份 zipformer/SenseVoice,各自独立 vad/stream)
+        tr.asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR,
+                               shared_first=self._shared_first,
+                               shared_second=self._shared_second)
         tr.native_rate = int(dev["defaultSampleRate"])
         tr.channels = max(1, int(dev["maxInputChannels"]))
         fpb = int(tr.native_rate * 0.1)   # 100ms
@@ -80,8 +85,12 @@ class MeetingPipeline:
 
     def start(self) -> None:
         import pyaudiowpatch as pyaudio
+        from livebabel.asr.vad_engine import build_shared_models
         self._stop = False
         self._pa = pyaudio.PyAudio()
+
+        # 一份共享模型(两路引擎复用,省一份大模型内存)
+        self._shared_first, self._shared_second, _ = build_shared_models(FIRST_DIR, SECOND_DIR)
 
         if self.use_loopback:
             dev = WasapiLoopbackSource()._find_loopback_device(self._pa)
@@ -151,6 +160,9 @@ class MeetingPipeline:
                 pass
             self._pa = None
         self._tracks = []
+        # 释放共享模型,回收内存
+        self._shared_first = None
+        self._shared_second = None
 
     @property
     def running(self) -> bool:

@@ -133,9 +133,13 @@ class VadTwoPassAsr:
     def __init__(self, first_dir: str, second_dir: str, num_threads: int = 2,
                  provisional: bool = True,
                  prov_max_seconds: float = PROVISIONAL_MAX_SECONDS,
-                 provider: str = "auto") -> None:
+                 provider: str = "auto",
+                 shared_first=None, shared_second=None) -> None:
         # provider: "auto"(默认,检测到 onnxruntime-gpu 的 CUDA provider 就用 cuda,
         # 否则 cpu)/ "cpu" / "cuda"。装了 onnxruntime-gpu + N 卡即自动 GPU 加速。
+        # shared_first/shared_second: 可传入【已构建的】zipformer/SenseVoice 识别器,
+        #   多个引擎共享同一份模型权重(权重只读、用各自 stream 隔离状态),省内存。
+        #   会议双流用 SharedModels 工厂创建后传入,~1GB → ~600MB。
         import sys as _sys
         self.provider = detect_provider() if provider == "auto" else provider
         # GPU 模式:先注册/预加载 cuBLAS/cuDNN DLL,否则 sherpa 的 CUDA provider 会因
@@ -147,18 +151,25 @@ class VadTwoPassAsr:
             except Exception:
                 pass
 
-        # 构建三个模型。GPU 构建若失败(如缺 cuDNN、provider 加载失败),
-        # 自动回退 CPU 重建,保证一定能跑起来而不是直接报错。
-        try:
-            self._build_models(first_dir, second_dir, num_threads)
-        except Exception as e:
-            if self.provider == "cuda":
-                print(f"[asr] GPU 初始化失败({type(e).__name__}: {e}),回退 CPU",
-                      file=_sys.stderr)
-                self.provider = "cpu"
+        if shared_first is not None and shared_second is not None:
+            # 复用共享模型:只建本实例独立的 vad + stream(轻量)
+            self.first = shared_first
+            self.second = shared_second
+            self.vad = self._build_vad(num_threads)
+            self.stream = self.first.create_stream()
+        else:
+            # 构建三个模型。GPU 构建若失败(如缺 cuDNN、provider 加载失败),
+            # 自动回退 CPU 重建,保证一定能跑起来而不是直接报错。
+            try:
                 self._build_models(first_dir, second_dir, num_threads)
-            else:
-                raise
+            except Exception as e:
+                if self.provider == "cuda":
+                    print(f"[asr] GPU 初始化失败({type(e).__name__}: {e}),回退 CPU",
+                          file=_sys.stderr)
+                    self.provider = "cpu"
+                    self._build_models(first_dir, second_dir, num_threads)
+                else:
+                    raise
         print(f"[asr] 实时识别使用 {'GPU(CUDA)' if self.provider == 'cuda' else 'CPU'}",
               file=_sys.stderr)
         self._committed_count = 0
@@ -340,3 +351,41 @@ class VadTwoPassAsr:
         if prefix and len(text) > len(prefix):
             return text[len(prefix):].strip()
         return text
+
+
+def build_shared_models(first_dir: str, second_dir: str, num_threads: int = 2,
+                        provider: str = "auto"):
+    """构建一份可被多个 VadTwoPassAsr 共享的 zipformer + SenseVoice 识别器。
+
+    会议双流用:两路引擎共享这一份模型权重(各自再建独立 vad/stream),
+    内存从 ~1GB 降到 ~600MB。返回 (first, second, provider)。
+    GPU 构建失败自动回退 CPU,返回实际用的 provider 供引擎保持一致。
+    """
+    import sys as _sys
+    prov = detect_provider() if provider == "auto" else provider
+    if prov == "cuda":
+        try:
+            from livebabel.offline.cuda_dll import ensure_cuda_dlls
+            ensure_cuda_dlls()
+        except Exception:
+            pass
+
+    def _build(p):
+        tmp = VadTwoPassAsr.__new__(VadTwoPassAsr)   # 借用构建方法,不跑完整 __init__
+        tmp.provider = p
+        first = tmp._build_first(first_dir, num_threads)
+        second = tmp._build_second(second_dir, num_threads)
+        return first, second
+
+    try:
+        first, second = _build(prov)
+    except Exception as e:
+        if prov == "cuda":
+            print(f"[asr] 共享模型 GPU 初始化失败({type(e).__name__}: {e}),回退 CPU",
+                  file=_sys.stderr)
+            prov = "cpu"
+            first, second = _build(prov)
+        else:
+            raise
+    print(f"[asr] 会议共享模型使用 {'GPU(CUDA)' if prov == 'cuda' else 'CPU'}", file=_sys.stderr)
+    return first, second, prov
