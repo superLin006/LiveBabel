@@ -119,7 +119,7 @@ class AsrEvent:
     utt_id: int = -1          # 所属语音段(utterance)的 id。同段的 provisional 共享它
     replace_seg: bool = False  # final 专用:True 表示用本段 SenseVoice 文本替换该段所有 provisional
 
-    # 向后兼容旧字段名(eval_asr 等仍在用)
+    # 向后兼容旧字段名
     @property
     def volatile_text(self) -> str:
         return self.text if self.kind == "volatile" else ""
