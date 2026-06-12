@@ -179,7 +179,11 @@ class MeetingPipeline:
             if evt.kind == "final":
                 t = evt.text.strip()
                 if t:
-                    self.recorder.add(speaker, t)
+                    self.recorder.add(speaker, t,
+                                      a_start=getattr(evt, "audio_start", -1.0),
+                                      a_end=getattr(evt, "audio_end", -1.0),
+                                      tokens=getattr(evt, "tokens", None),
+                                      timestamps=getattr(evt, "timestamps", None))
                     self.on_update()
             elif evt.kind in ("volatile", "provisional"):
                 self.recorder.set_draft(speaker, evt.text)

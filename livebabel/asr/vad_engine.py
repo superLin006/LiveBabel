@@ -118,6 +118,10 @@ class AsrEvent:
     seg_index: int = -1
     utt_id: int = -1          # 所属语音段(utterance)的 id。同段的 provisional 共享它
     replace_seg: bool = False  # final 专用:True 表示用本段 SenseVoice 文本替换该段所有 provisional
+    audio_start: float = -1.0  # final 专用:该语音段在整段音频里的起始秒(供会后按声纹边界拆分归属)
+    audio_end: float = -1.0    # final 专用:结束秒
+    tokens: list = None        # final 专用:token 文本列表(SenseVoice)
+    timestamps: list = None    # final 专用:每个 token 的段内相对秒(用于精确按字时间拆分)
 
     # 向后兼容旧字段名
     @property
@@ -229,12 +233,24 @@ class VadTwoPassAsr:
     # ---------- Pass2 ----------
 
     def _refine(self, audio: np.ndarray) -> str:
+        text, _, _ = self._refine_timed(audio)
+        return text
+
+    def _refine_timed(self, audio: np.ndarray):
+        """SenseVoice 整段重识,返回 (text, tokens, timestamps)。
+
+        tokens/timestamps 是 token 级(SenseVoice 自带),供会后按真实字时间拆分归属。
+        """
         if len(audio) < SAMPLE_RATE * 0.2:
-            return ""
+            return "", [], []
         s = self.second.create_stream()
         s.accept_waveform(SAMPLE_RATE, audio)
         self.second.decode_stream(s)
-        return normalize_case(s.result.text.strip())
+        r = s.result
+        text = normalize_case(r.text.strip())
+        tokens = list(getattr(r, "tokens", []) or [])
+        ts = list(getattr(r, "timestamps", []) or [])
+        return text, tokens, ts
 
     # ---------- 主接口 ----------
 
@@ -280,13 +296,18 @@ class VadTwoPassAsr:
         while not self.vad.empty():
             seg = self.vad.front
             seg_audio = np.array(seg.samples, dtype=np.float32)
+            a_start = seg.start / SAMPLE_RATE                       # 段在整段音频里的起止秒
+            a_end = (seg.start + len(seg_audio)) / SAMPLE_RATE
             self.vad.pop()
-            refined = self._refine(seg_audio)   # SenseVoice 整段重识(高精度)
+            refined, toks, ts = self._refine_timed(seg_audio)   # SenseVoice 整段重识 + token 时间戳
             if refined and not _is_garbage(refined):
-                # 若本段出过临时子句,用整段高精度结果"替换"它们;否则正常新增一行
+                # token 时间戳是段内相对秒,转成整段音频的绝对秒(加 a_start)
+                abs_ts = [a_start + x for x in ts]
                 events.append(AsrEvent(
                     kind="final", text=refined, seg_index=self._next_idx(),
                     utt_id=self._utt_id, replace_seg=self._utt_had_prov,
+                    audio_start=a_start, audio_end=a_end,
+                    tokens=toks, timestamps=abs_ts,
                 ))
             seg_closed = True
 
@@ -328,12 +349,17 @@ class VadTwoPassAsr:
         while not self.vad.empty():
             seg = self.vad.front
             seg_audio = np.array(seg.samples, dtype=np.float32)
+            a_start = seg.start / SAMPLE_RATE
+            a_end = (seg.start + len(seg_audio)) / SAMPLE_RATE
             self.vad.pop()
-            refined = self._refine(seg_audio)
+            refined, toks, ts = self._refine_timed(seg_audio)
             if refined and not _is_garbage(refined):
+                abs_ts = [a_start + x for x in ts]
                 events.append(AsrEvent(
                     kind="final", text=refined, seg_index=self._next_idx(),
                     utt_id=self._utt_id, replace_seg=self._utt_had_prov,
+                    audio_start=a_start, audio_end=a_end,
+                    tokens=toks, timestamps=abs_ts,
                 ))
             self._utt_had_prov = False
             self._utt_id += 1
