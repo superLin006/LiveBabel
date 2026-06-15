@@ -77,36 +77,44 @@ def _snap_to_punct(tokens: List[str], sids: List[Optional[int]],
         return sids
     sids = list(sids)
     n = len(sids)
-    # 找出所有换人边界(i 表示 i-1 与 i 之间切开)
-    bounds = [i for i in range(1, n) if sids[i] != sids[i - 1]]
-    for i in bounds:
+    # 逐个处理换人边界。每次都基于【当前 sids】实时判断 left/right —— 因为上一个
+    # 边界的吸附可能已改写附近 sid,用预存索引会读到过期值(相邻边界连锁误并)。
+    i = 1
+    while i < n:
+        if sids[i] == sids[i - 1]:
+            i += 1
+            continue
         left, right = sids[i - 1], sids[i]
-        # 在边界附近找最近的句末标点位置 p(标点 token 的下标)
+        # 在边界附近找最近的句末标点;吸附范围不得跨越【第三个说话人】(只在
+        # left/right 两段内部挪边界,遇到别的 sid 即停),避免吞并整段。
         best_p, best_d = None, window + 1
         for p in range(max(0, i - window), min(n, i + window)):
+            if sids[p] not in (left, right):
+                continue
             tok = (tokens[p] or "").strip()
             if tok and tok[-1] in _SENT_END:
                 d = abs(p - (i - 1))
                 if d < best_d:
                     best_p, best_d = p, d
         if best_p is None:
+            i += 1
             continue
-        # 切点应落在标点 token(best_p)之后,即 best_p 及之前归 left,之后归 right。
-        # 把 [当前边界, best_p] 这段按需重写 sid,使 best_p 处成为真正的换人点。
+        # 切点落在标点 token(best_p)之后:best_p 及之前归 left,之后归 right。
         if best_p >= i:
-            # 标点在边界右侧:把 i..best_p 这几个 token 拉回 left(它们其实是上句尾巴)
+            # 标点在边界右侧:把 i..best_p 拉回 left(上句尾巴被错分给了 right)
             for j in range(i, best_p + 1):
                 if sids[j] == right:
                     sids[j] = left
                 else:
                     break
         else:
-            # 标点在边界左侧:把 best_p+1..i-1 提前归 right(下句开头被错分给了 left)
+            # 标点在边界左侧:把 best_p+1..i-1 提前归 right(下句开头错分给了 left)
             for j in range(best_p + 1, i):
                 if sids[j] == left:
                     sids[j] = right
                 else:
                     break
+        i += 1
     return sids
 
 
@@ -220,6 +228,8 @@ class MeetingRecorder:
             if not idxs:
                 return stat
             items = [(i, self._items[i].speaker, self._items[i].text) for i in idxs]
+            # 快照"序号→(标签,文本)",回填时校验条目未变,防网络期间 _items 被改(重跑/续录)
+            snap = {i: (self._items[i].speaker, self._items[i].text) for i in idxs}
         # 网络请求在锁外(别占锁等网络)
         res = refine(items, api_key=api_key)
         with self._lock:
@@ -228,14 +238,22 @@ class MeetingRecorder:
                 if self._rename.get(label) != name:
                     self._rename[label] = name
                     stat["named"] += 1
-            # ② 纠错文本
+            # ② 纠错文本:仅当该序号条目仍是当初发出去的那条(文本一致)才回填
             for i, txt in res.fixes.items():
-                if 0 <= i < len(self._items) and self._items[i].text != txt:
+                if i not in snap or not (0 <= i < len(self._items)):
+                    continue
+                if self._items[i].text != snap[i][1]:   # 条目已变,跳过(防错改)
+                    continue
+                if self._items[i].text != txt:
                     self._items[i].text = txt
                     stat["fixed"] += 1
-            # ③ 轻改归属
+            # ③ 轻改归属:同样校验条目未变
             for i, spk in res.reassign.items():
-                if 0 <= i < len(self._items) and self._items[i].speaker != spk:
+                if i not in snap or not (0 <= i < len(self._items)):
+                    continue
+                if self._items[i].speaker != snap[i][0]:
+                    continue
+                if self._items[i].speaker != spk:
                     self._items[i].speaker = spk
                     stat["reassigned"] += 1
         return stat
