@@ -3,9 +3,12 @@ chcp 65001 >nul
 REM ============================================================
 REM  Build LiveBabel-CPU.exe (lightweight, no GPU libs).
 REM  Run in Anaconda Prompt with the "subtitle" env.
+REM  Uses the SAME spec as GPU build (packaging\subtitle.spec);
+REM  LIVEBABEL_BUILD=cpu switches it to the CPU-only path.
 REM ============================================================
 setlocal
 set ENV_NAME=subtitle
+set LIVEBABEL_BUILD=cpu
 
 cd /d "%~dp0.."
 
@@ -17,8 +20,8 @@ echo [1/4] Installing PyInstaller ...
 call conda run -n %ENV_NAME% pip install pyinstaller
 if errorlevel 1 goto err
 
-echo [2/4] Building CPU exe from packaging\subtitle-cpu.spec ...
-call conda run -n %ENV_NAME% pyinstaller --noconfirm packaging\subtitle-cpu.spec
+echo [2/4] Building CPU exe from packaging\subtitle.spec (LIVEBABEL_BUILD=cpu) ...
+call conda run -n %ENV_NAME% pyinstaller --noconfirm packaging\subtitle.spec
 if errorlevel 1 goto err
 
 echo [3/4] Copying models into dist ...
