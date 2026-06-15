@@ -402,10 +402,10 @@ class MeetingWindow(QWidget):
                         self.bridge.diar_progress.emit(int(100 * done / total))
                 segs = diar.diarize(audio, num_speakers=num, on_progress=prog)
                 n = self.recorder.refine_speaker("远端", segs)
-                # 声纹分完,若多于 1 人且有 key,自动用 LLM 按对话逻辑矫正归属
+                # 声纹分完,若多于 1 人且有 key,自动用 LLM 增强:起名/纠错/轻改归属
                 if n > 1 and (api_key or "").strip():
                     self.bridge.diar_progress.emit(100)
-                    self.bridge.diar_status.emit("正在用 AI 校正说话人归属…")
+                    self.bridge.diar_status.emit("正在用 AI 优化(起名/纠错)…")
                     try:
                         self.recorder.apply_llm_correction(api_key=api_key)
                     except Exception:

@@ -157,30 +157,38 @@ class MeetingRecorder:
             self._items = new_items
             return len(order)
 
-    def apply_llm_correction(self, api_key: str = "") -> int:
-        """声纹分完后,用 LLM 按对话逻辑矫正说话人归属(只改归属,不改文字)。
+    def apply_llm_correction(self, api_key: str = "") -> dict:
+        """声纹分完后,用 LLM 做增强:① 给说话人起名/角色 ② 纠 ASR 同音错字
+        ③ 仅在明显矛盾处轻改归属。返回 {'named':n, 'fixed':n, 'reassigned':n}。
 
-        只对已细分(speaker 含"-发言人")的条目矫正。返回被改动的条目数。
-        无 key / 失败则不改、返回 0。
+        只对已细分(speaker 含"-发言人")的条目做。无 key/失败则不动、返回全 0。
         """
-        from livebabel.meeting.llm_refine import refine_with_llm
+        from livebabel.meeting.llm_refine import refine
+        stat = {"named": 0, "fixed": 0, "reassigned": 0}
         with self._lock:
-            # 只取已细分的条(显示用当前 speaker)
             idxs = [i for i, u in enumerate(self._items) if "-发言人" in u.speaker]
             if not idxs:
-                return 0
+                return stat
             items = [(i, self._items[i].speaker, self._items[i].text) for i in idxs]
-        # 网络请求在锁外做(别占着锁等网络)
-        mapping = refine_with_llm(items, api_key=api_key)
-        if not mapping:
-            return 0
-        changed = 0
+        # 网络请求在锁外(别占锁等网络)
+        res = refine(items, api_key=api_key)
         with self._lock:
-            for i, spk in mapping.items():
+            # ① 起名:写进 _rename(显示层映射,segments() 会应用)
+            for label, name in res.names.items():
+                if self._rename.get(label) != name:
+                    self._rename[label] = name
+                    stat["named"] += 1
+            # ② 纠错文本
+            for i, txt in res.fixes.items():
+                if 0 <= i < len(self._items) and self._items[i].text != txt:
+                    self._items[i].text = txt
+                    stat["fixed"] += 1
+            # ③ 轻改归属
+            for i, spk in res.reassign.items():
                 if 0 <= i < len(self._items) and self._items[i].speaker != spk:
                     self._items[i].speaker = spk
-                    changed += 1
-        return changed
+                    stat["reassigned"] += 1
+        return stat
 
     def _split_utterance(self, u: "Utterance", diar_segments, label_fn) -> List["Utterance"]:
         """把一条跨多说话人的转录按声纹边界拆成多条。
