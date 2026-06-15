@@ -79,6 +79,7 @@ class _Bridge(QObject):
     diar_ok = Signal(int)       # 细分出的发言人数
     diar_fail = Signal(str)
     diar_progress = Signal(int) # 0-100
+    diar_status = Signal(str)   # 阶段文字(如 AI 校正中)
 
 
 class MeetingWindow(QWidget):
@@ -104,6 +105,7 @@ class MeetingWindow(QWidget):
         self.bridge.diar_fail.connect(self._on_diar_fail)
         self.bridge.diar_progress.connect(
             lambda p: self.status.setText(f"正在分析声纹区分说话人… {p}%"))
+        self.bridge.diar_status.connect(lambda s: self.status.setText(s))
         # 转录刷新做节流,避免高频信号刷爆 UI
         self._dirty = False
         self._refresh_timer = QTimer(self)
@@ -176,7 +178,9 @@ class MeetingWindow(QWidget):
         # 会后说话人分离:把"远端"细分成多个发言人
         head_row.addWidget(QLabel("远端人数"))
         self.spk_count = QComboBox()
-        self.spk_count.addItems(["自动", "2", "3", "4", "5", "6"])
+        self.spk_count.addItems(["2", "3", "4", "5", "6", "自动"])  # 默认 2 人,指定最准
+        self.spk_count.setCurrentIndex(0)
+        self.spk_count.setToolTip("已知远端有几个人就选几人(最准);「自动」效果不稳定")
         head_row.addWidget(self.spk_count)
         self.diar_btn = QPushButton("区分说话人")
         self.diar_btn.clicked.connect(self._diarize)
@@ -390,6 +394,7 @@ class MeetingWindow(QWidget):
         self.diar_btn.setText("分析中…")
         self.status.setText("正在分析声纹区分说话人…(整段处理,较慢请稍候)")
 
+        api_key = self._api_key
         def work():
             try:
                 def prog(done, total):
@@ -397,6 +402,14 @@ class MeetingWindow(QWidget):
                         self.bridge.diar_progress.emit(int(100 * done / total))
                 segs = diar.diarize(audio, num_speakers=num, on_progress=prog)
                 n = self.recorder.refine_speaker("远端", segs)
+                # 声纹分完,若多于 1 人且有 key,自动用 LLM 增强:起名/纠错/轻改归属
+                if n > 1 and (api_key or "").strip():
+                    self.bridge.diar_progress.emit(100)
+                    self.bridge.diar_status.emit("正在用 AI 优化(起名/纠错)…")
+                    try:
+                        self.recorder.apply_llm_correction(api_key=api_key)
+                    except Exception:
+                        pass
                 self.bridge.diar_ok.emit(n)
             except Exception as e:
                 self.bridge.diar_fail.emit(f"{type(e).__name__}: {e}")
@@ -413,7 +426,8 @@ class MeetingWindow(QWidget):
         self._draft_items = 0
         self._refresh_transcript()
         if n > 1:
-            self.status.setText(f"✓ 远端已区分为 {n} 位发言人(可再重命名)")
+            tip = "(声纹+AI校正,可再重命名)" if (self._api_key or "").strip() else "(可再重命名)"
+            self.status.setText(f"✓ 远端已区分为 {n} 位发言人{tip}")
         else:
             self.status.setText("✓ 分析完成:远端只识别到 1 位发言人")
 

@@ -9,7 +9,113 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
+
+
+def _smooth_runs(sids: List[Optional[int]], min_run: int = 3) -> List[Optional[int]]:
+    """把 token 级说话人序列里【过短的游程】并入相邻说话人,抑制单点跳变噪声。
+
+    例:[A,A,A,B,A,A,A,A](中间单个 B 是重叠窗噪声)→ [A,A,A,A,A,A,A,A]。
+    但 [A,A,A,A,B,B,B,B,B](真换人)保留。min_run 是认定为真换人的最少连续 token 数。
+    """
+    if not sids:
+        return sids
+    # 切成游程
+    runs = []  # [sid, length]
+    for s in sids:
+        if runs and runs[-1][0] == s:
+            runs[-1][1] += 1
+        else:
+            runs.append([s, 1])
+    # 反复把短游程并入较长的相邻游程,直到稳定
+    changed = True
+    while changed and len(runs) > 1:
+        changed = False
+        for i, (sid, ln) in enumerate(runs):
+            if ln >= min_run:
+                continue
+            left = runs[i - 1] if i > 0 else None
+            right = runs[i + 1] if i < len(runs) - 1 else None
+            # 并入更长的那侧邻居
+            target = None
+            if left and right:
+                target = left if left[1] >= right[1] else right
+            else:
+                target = left or right
+            if target is not None:
+                target[0] = target[0]   # 保持邻居 sid
+                # 把当前短游程的长度算给邻居,然后删掉它
+                target[1] += ln
+                runs.pop(i)
+                changed = True
+                break
+    # 合并相邻同 sid 游程后展开
+    out: List[Optional[int]] = []
+    for sid, ln in runs:
+        out.extend([sid] * ln)
+    # 长度可能因合并错位,按原长度兜底
+    if len(out) != len(sids):
+        # 退化:不平滑
+        return sids
+    return out
+
+
+# 句末标点:换人切点优先吸附到这些 token 之后,避免从句子中间劈断
+_SENT_END = set("。！？!?.…")
+
+
+def _snap_to_punct(tokens: List[str], sids: List[Optional[int]],
+                   window: int = 3) -> List[Optional[int]]:
+    """把"换人切点"吸附到最近的句末标点之后,避免一句话被从中间劈成两半。
+
+    声纹边界有 ~1s 粒度,常卡在换人瞬间前后、落在句子中部。这里对每个相邻
+    sid 不同的边界 i(切在 i-1|i 之间),在 [i-window, i+window) 内找最近的
+    句末标点 token,把切点移到该标点之后(即把这一小段 token 的 sid 改成边界
+    一侧的说话人),使切分发生在句子边界而非句中。只动 sids,不改 tokens。
+    """
+    if not tokens or len(tokens) != len(sids):
+        return sids
+    sids = list(sids)
+    n = len(sids)
+    # 逐个处理换人边界。每次都基于【当前 sids】实时判断 left/right —— 因为上一个
+    # 边界的吸附可能已改写附近 sid,用预存索引会读到过期值(相邻边界连锁误并)。
+    i = 1
+    while i < n:
+        if sids[i] == sids[i - 1]:
+            i += 1
+            continue
+        left, right = sids[i - 1], sids[i]
+        # 在边界附近找最近的句末标点;吸附范围不得跨越【第三个说话人】(只在
+        # left/right 两段内部挪边界,遇到别的 sid 即停),避免吞并整段。
+        best_p, best_d = None, window + 1
+        for p in range(max(0, i - window), min(n, i + window)):
+            if sids[p] not in (left, right):
+                continue
+            tok = (tokens[p] or "").strip()
+            if tok and tok[-1] in _SENT_END:
+                d = abs(p - (i - 1))
+                if d < best_d:
+                    best_p, best_d = p, d
+        if best_p is None:
+            i += 1
+            continue
+        # 切点落在标点 token(best_p)之后:best_p 及之前归 left,之后归 right。
+        if best_p >= i:
+            # 标点在边界右侧:把 i..best_p 拉回 left(上句尾巴被错分给了 right)
+            for j in range(i, best_p + 1):
+                if sids[j] == right:
+                    sids[j] = left
+                else:
+                    break
+        else:
+            # 标点在边界左侧:把 best_p+1..i-1 提前归 right(下句开头错分给了 left)
+            for j in range(best_p + 1, i):
+                if sids[j] == left:
+                    sids[j] = right
+                else:
+                    break
+        i += 1
+    return sids
 
 
 @dataclass
@@ -89,14 +195,68 @@ class MeetingRecorder:
                     u.speaker = _label(sid) if sid is not None else u.speaker
                     new_items.append(u)
                     continue
-                if len(overlaps) == 1:
-                    u.speaker = _label(next(iter(overlaps)))
+                ranked = sorted(overlaps.items(), key=lambda kv: -kv[1])
+                tot = sum(overlaps.values()) or 1.0
+                top_sid = ranked[0][0]
+                second_share = (ranked[1][1] / tot) if len(ranked) > 1 else 0.0
+                second_dur = ranked[1][1] if len(ranked) > 1 else 0.0
+                has_tokens = bool(u.tokens and u.timestamps
+                                  and len(u.tokens) == len(u.timestamps))
+                # 有 token 时间戳:走精确拆分(内部用游程平滑判断真换人,噪声不会切碎),
+                # 哪怕次说话人占比小也尝试——这样"一段里换了人"能被拆开。
+                # 无 token 时间戳:只能按占比粗切,门槛严(次≥35%且≥2s)防误切。
+                if has_tokens:
+                    new_items.extend(self._split_utterance(u, diar_segments, _label))
+                elif second_share >= 0.35 and second_dur >= 2.0:
+                    new_items.extend(self._split_utterance(u, diar_segments, _label))
+                else:
+                    u.speaker = _label(top_sid)
                     new_items.append(u)
-                    continue
-                # 跨多人:按时长占比拆分文字(无字级时间戳,按比例粗分,顺序按时间)
-                new_items.extend(self._split_utterance(u, diar_segments, _label))
             self._items = new_items
             return len(order)
+
+    def apply_llm_correction(self, api_key: str = "") -> dict:
+        """声纹分完后,用 LLM 做增强:① 给说话人起名/角色 ② 纠 ASR 同音错字
+        ③ 仅在明显矛盾处轻改归属。返回 {'named':n, 'fixed':n, 'reassigned':n}。
+
+        只对已细分(speaker 含"-发言人")的条目做。无 key/失败则不动、返回全 0。
+        """
+        from livebabel.meeting.llm_refine import refine
+        stat = {"named": 0, "fixed": 0, "reassigned": 0}
+        with self._lock:
+            idxs = [i for i, u in enumerate(self._items) if "-发言人" in u.speaker]
+            if not idxs:
+                return stat
+            items = [(i, self._items[i].speaker, self._items[i].text) for i in idxs]
+            # 快照"序号→(标签,文本)",回填时校验条目未变,防网络期间 _items 被改(重跑/续录)
+            snap = {i: (self._items[i].speaker, self._items[i].text) for i in idxs}
+        # 网络请求在锁外(别占锁等网络)
+        res = refine(items, api_key=api_key)
+        with self._lock:
+            # ① 起名:写进 _rename(显示层映射,segments() 会应用)
+            for label, name in res.names.items():
+                if self._rename.get(label) != name:
+                    self._rename[label] = name
+                    stat["named"] += 1
+            # ② 纠错文本:仅当该序号条目仍是当初发出去的那条(文本一致)才回填
+            for i, txt in res.fixes.items():
+                if i not in snap or not (0 <= i < len(self._items)):
+                    continue
+                if self._items[i].text != snap[i][1]:   # 条目已变,跳过(防错改)
+                    continue
+                if self._items[i].text != txt:
+                    self._items[i].text = txt
+                    stat["fixed"] += 1
+            # ③ 轻改归属:同样校验条目未变
+            for i, spk in res.reassign.items():
+                if i not in snap or not (0 <= i < len(self._items)):
+                    continue
+                if self._items[i].speaker != snap[i][0]:
+                    continue
+                if self._items[i].speaker != spk:
+                    self._items[i].speaker = spk
+                    stat["reassigned"] += 1
+        return stat
 
     def _split_utterance(self, u: "Utterance", diar_segments, label_fn) -> List["Utterance"]:
         """把一条跨多说话人的转录按声纹边界拆成多条。
@@ -107,10 +267,18 @@ class MeetingRecorder:
         from livebabel.meeting.diarize import speaker_at
         # —— 精确路径:有 token 时间戳 ——
         if u.tokens and u.timestamps and len(u.tokens) == len(u.timestamps):
+            # 1) 每个 token 落到所属说话人
+            sids = [speaker_at(diar_segments, ts) for ts in u.timestamps]
+            # 2) 平滑:抹掉过短的"说话人游程"(重叠窗噪声造成的单点跳变),
+            #    游程 < MIN_RUN 个 token 的并入相邻较长说话人,避免把句子切碎。
+            sids = _smooth_runs(sids, min_run=3)
+            # 2.5) 标点吸附:把换人切点挪到最近的句末标点之后,避免从句中劈断
+            sids = _snap_to_punct(u.tokens, sids, window=3)
+            sids = _smooth_runs(sids, min_run=3)  # 吸附可能又造出短游程,再平滑一次
+            # 3) 按平滑后的连续游程切句
             out: List[Utterance] = []
             cur_sid = None
             cur_toks: list = []
-
             cur_ts: list = []
 
             def flush():
@@ -121,8 +289,7 @@ class MeetingRecorder:
                                              base=u.base, is_me=False,
                                              a_start=u.a_start, a_end=u.a_end,
                                              tokens=list(cur_toks), timestamps=list(cur_ts)))
-            for tok, ts in zip(u.tokens, u.timestamps):
-                sid = speaker_at(diar_segments, ts)
+            for tok, ts, sid in zip(u.tokens, u.timestamps, sids):
                 if sid != cur_sid:
                     flush()
                     cur_sid, cur_toks, cur_ts = sid, [], []
@@ -131,7 +298,6 @@ class MeetingRecorder:
             flush()
             if out:
                 return out
-            # 退化(全程没匹配到):返回原条
             return [u]
 
         # —— 退化路径:按时长比例粗切 ——
