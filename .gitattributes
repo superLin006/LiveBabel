@@ -1,3 +1,22 @@
+# 默认:所有文本文件统一以 LF 存进仓库(消除 Windows CRLF 反复显示 modified、
+# 切分支冲突、跨平台 cp 后满屏假改动的问题)。git 会自动识别文本/二进制。
+* text=auto eol=lf
+
+# 显式声明源码/文本为 LF(防自动判定失误)
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.spec  text eol=lf
+*.srt   text eol=lf
+
+# Windows 专用脚本保持 CRLF(否则在 Windows 上可能无法正确执行)
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
 # 二进制资源不做换行符转换(否则 Windows autocrlf 会把图片/模型当文本改坏,
 # 导致 git 永远显示 modified、切不了分支)
 *.png   binary
