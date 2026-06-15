@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -197,6 +199,9 @@ class OfflineWindow(QWidget):
         super().__init__(parent)
         self._api_key = api_key
         self._worker: _Worker | None = None
+        self._queue: list = []          # 待处理文件路径队列(批量)
+        self._queue_total = 0           # 本批总数(供 "第 k/N 个" 提示)
+        self._queue_results: list = []  # 每个文件的结果摘要
 
         self.setWindowTitle("LiveBabel · 离线字幕")
         self.resize(620, 640)
@@ -228,16 +233,24 @@ class OfflineWindow(QWidget):
         root.addWidget(sub)
         root.addSpacing(6)
 
-        # 文件选择
-        root.addWidget(self._section("视频文件"))
-        file_row = QHBoxLayout()
-        self.path_edit = QLineEdit()
-        self.path_edit.setPlaceholderText("选择要生成字幕的视频 / 音频文件…")
-        browse = QPushButton("浏览…")
-        browse.clicked.connect(self._pick_file)
-        file_row.addWidget(self.path_edit, 1)
-        file_row.addWidget(browse)
-        root.addLayout(file_row)
+        # 文件选择(支持多文件排队批量处理)
+        root.addWidget(self._section("视频文件(可多选,排队批量处理)"))
+        self.file_list = QListWidget()
+        self.file_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.file_list.setMaximumHeight(110)
+        root.addWidget(self.file_list)
+        file_btns = QHBoxLayout()
+        add_btn = QPushButton("添加文件…")
+        add_btn.clicked.connect(self._pick_file)
+        rm_btn = QPushButton("移除选中")
+        rm_btn.clicked.connect(self._remove_selected)
+        clr_btn = QPushButton("清空")
+        clr_btn.clicked.connect(self._clear_files)
+        file_btns.addWidget(add_btn)
+        file_btns.addWidget(rm_btn)
+        file_btns.addWidget(clr_btn)
+        file_btns.addStretch(1)
+        root.addLayout(file_btns)
 
         # 语言选项网格
         root.addWidget(self._section("语言"))
@@ -331,13 +344,31 @@ class OfflineWindow(QWidget):
     # ---- 交互 ----
 
     def _pick_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择视频 / 音频",
-            self.path_edit.text() or os.path.expanduser("~"),
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "选择视频 / 音频(可多选)",
+            os.path.expanduser("~"),
             "媒体文件 (*.mp4 *.mkv *.mov *.avi *.flv *.webm *.wav *.mp3 *.m4a *.flac);;所有文件 (*.*)",
         )
-        if path:
-            self.path_edit.setText(path)
+        existing = {self.file_list.item(i).data(Qt.UserRole)
+                    for i in range(self.file_list.count())}
+        for p in paths:
+            if p in existing:
+                continue                     # 去重
+            it = QListWidgetItem(os.path.basename(p))
+            it.setData(Qt.UserRole, p)        # 全路径存 UserRole,显示只用文件名
+            it.setToolTip(p)
+            self.file_list.addItem(it)
+
+    def _remove_selected(self) -> None:
+        for it in self.file_list.selectedItems():
+            self.file_list.takeItem(self.file_list.row(it))
+
+    def _clear_files(self) -> None:
+        self.file_list.clear()
+
+    def _all_files(self) -> list:
+        return [self.file_list.item(i).data(Qt.UserRole)
+                for i in range(self.file_list.count())]
 
     def _log(self, line: str) -> None:
         self.logbox.appendPlainText(line)
@@ -345,9 +376,9 @@ class OfflineWindow(QWidget):
     def _start(self) -> None:
         if self._worker and self._worker.isRunning():
             return                           # 防重复点击
-        video = self.path_edit.text().strip()
-        if not video or not os.path.isfile(video):
-            self.status.setText("⚠ 请先选择一个存在的视频 / 音频文件")
+        files = [p for p in self._all_files() if os.path.isfile(p)]
+        if not files:
+            self.status.setText("⚠ 请先添加至少一个存在的视频 / 音频文件")
             return
 
         translate = self.cb_translate.isChecked()
@@ -362,8 +393,8 @@ class OfflineWindow(QWidget):
             self.cb_translate.setChecked(False)
 
         on_gpu = self.device_combo.currentIndex() == 1
-        opts = {
-            "video": video,
+        # 这些选项整批共用,逐个文件只替换 video
+        self._batch_opts = {
             "model": "large-v3-turbo",
             "source_lang": SOURCE_LANGS[self.source_combo.currentText()],
             "target_lang": self.target_combo.currentText(),
@@ -374,11 +405,26 @@ class OfflineWindow(QWidget):
             "out_dir": None,
             "api_key": self._api_key,
         }
+        self._queue = list(files)
+        self._queue_total = len(files)
+        self._queue_results = []
 
         self.logbox.clear()
-        self.progress.setValue(0)
-        self.status.setText("准备中…")
         self._set_running(True)
+        self._start_next()
+
+    def _start_next(self) -> None:
+        """从队列取下一个文件启动 worker;队列空则收尾。"""
+        if not self._queue:
+            self._on_batch_finished()
+            return
+        video = self._queue.pop(0)
+        idx = self._queue_total - len(self._queue)      # 第几个(1-based)
+        opts = dict(self._batch_opts, video=video)
+        self.progress.setValue(0)
+        head = f"[{idx}/{self._queue_total}] {os.path.basename(video)}"
+        self.status.setText(f"准备中… {head}")
+        self._log(f"\n==== {head} ====")
 
         self._worker = _Worker(opts)
         self._worker.progress.connect(self._on_progress)
@@ -394,28 +440,48 @@ class OfflineWindow(QWidget):
 
     def _on_progress(self, pct: int, label: str) -> None:
         self.progress.setValue(pct)
+        if self._queue_total > 1:
+            idx = self._queue_total - len(self._queue)   # 当前是第几个
+            label = f"[{idx}/{self._queue_total}] {label}"
         self.status.setText(label)
 
     def _on_done(self, ok: bool, msg: str) -> None:
-        self._set_running(False)
         if ok:
-            self.status.setText("✓ 完成")
-            self._log("\n========\n" + msg)
+            self._log("\n-------- 本文件完成 --------\n" + msg)
+            self._queue_results.append("✓ " + msg.splitlines()[0] if msg else "✓ 完成")
         else:
-            self.status.setText("✗ " + (msg if msg == "已取消" else "失败"))
             self._log("\n[结束] " + msg)
-        # 不要立刻把 _worker 置 None:线程对象需活到 run() 真正退出,
-        # 否则会触发 "QThread destroyed while running"。done 信号在 run() 末尾发出,
-        # 此刻线程即将结束,wait() 几乎立即返回,安全回收。
+            self._queue_results.append("✗ " + msg)
+        # 回收当前 worker(线程对象需活到 run() 真正退出,否则 "QThread destroyed while running")
         if self._worker:
             self._worker.wait(2000)
             self._worker = None
+        # 用户取消 → 中止整批;否则继续下一个
+        if msg == "已取消":
+            self._queue = []
+            self._on_batch_finished(cancelled=True)
+        else:
+            self._start_next()
+
+    def _on_batch_finished(self, cancelled: bool = False) -> None:
+        """整批处理结束(队列空或被取消):恢复 UI 并汇总结果。"""
+        self._set_running(False)
+        done = len(self._queue_results)
+        ok_n = sum(1 for r in self._queue_results if r.startswith("✓"))
+        if cancelled:
+            self.status.setText(f"✗ 已取消(本批已完成 {ok_n}/{self._queue_total})")
+        else:
+            self.status.setText(f"✓ 全部完成({ok_n}/{self._queue_total} 成功)")
+        if self._queue_total > 1:
+            self._log("\n======== 批量结果 ========")
+            for r in self._queue_results:
+                self._log("  " + r)
 
     def _set_running(self, running: bool) -> None:
         self.start_btn.setEnabled(not running)
         self.start_btn.setText("生成中…" if running else "开始生成")
         self.cancel_btn.setEnabled(running)
-        for w in (self.path_edit, self.source_combo, self.target_combo,
+        for w in (self.file_list, self.source_combo, self.target_combo,
                   self.device_combo, self.cb_translate, self.sub_combo):
             w.setEnabled(not running)
 
@@ -424,7 +490,12 @@ class OfflineWindow(QWidget):
 
     def _stop_worker(self) -> None:
         """请求取消并等待后台线程结束(关窗/退出前调用,避免线程未结束被销毁)。"""
+        self._queue = []                     # 先清队列,防 _on_done 又启动下一个文件
         if self._worker and self._worker.isRunning():
+            try:
+                self._worker.done.disconnect(self._on_done)   # 断开,避免 wait 后回调起新任务
+            except (TypeError, RuntimeError):
+                pass
             self._worker.cancel()
             # 取消标志只在下一个回调处生效;烧录这种单次长调用可能要等它跑完
             self._worker.wait()
