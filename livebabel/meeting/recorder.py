@@ -9,7 +9,55 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
+
+
+def _smooth_runs(sids: List[Optional[int]], min_run: int = 3) -> List[Optional[int]]:
+    """把 token 级说话人序列里【过短的游程】并入相邻说话人,抑制单点跳变噪声。
+
+    例:[A,A,A,B,A,A,A,A](中间单个 B 是重叠窗噪声)→ [A,A,A,A,A,A,A,A]。
+    但 [A,A,A,A,B,B,B,B,B](真换人)保留。min_run 是认定为真换人的最少连续 token 数。
+    """
+    if not sids:
+        return sids
+    # 切成游程
+    runs = []  # [sid, length]
+    for s in sids:
+        if runs and runs[-1][0] == s:
+            runs[-1][1] += 1
+        else:
+            runs.append([s, 1])
+    # 反复把短游程并入较长的相邻游程,直到稳定
+    changed = True
+    while changed and len(runs) > 1:
+        changed = False
+        for i, (sid, ln) in enumerate(runs):
+            if ln >= min_run:
+                continue
+            left = runs[i - 1] if i > 0 else None
+            right = runs[i + 1] if i < len(runs) - 1 else None
+            # 并入更长的那侧邻居
+            target = None
+            if left and right:
+                target = left if left[1] >= right[1] else right
+            else:
+                target = left or right
+            if target is not None:
+                target[0] = target[0]   # 保持邻居 sid
+                # 把当前短游程的长度算给邻居,然后删掉它
+                target[1] += ln
+                runs.pop(i)
+                changed = True
+                break
+    # 合并相邻同 sid 游程后展开
+    out: List[Optional[int]] = []
+    for sid, ln in runs:
+        out.extend([sid] * ln)
+    # 长度可能因合并错位,按原长度兜底
+    if len(out) != len(sids):
+        # 退化:不平滑
+        return sids
+    return out
 
 
 @dataclass
@@ -89,20 +137,23 @@ class MeetingRecorder:
                     u.speaker = _label(sid) if sid is not None else u.speaker
                     new_items.append(u)
                     continue
-                # 取占比:主导说话人 + 次说话人
                 ranked = sorted(overlaps.items(), key=lambda kv: -kv[1])
                 tot = sum(overlaps.values()) or 1.0
-                top_sid, top_dur = ranked[0]
+                top_sid = ranked[0][0]
                 second_share = (ranked[1][1] / tot) if len(ranked) > 1 else 0.0
                 second_dur = ranked[1][1] if len(ranked) > 1 else 0.0
-                # 仅当次说话人占比足够大(≥35%)且时长够(≥2s)才真正拆分——
-                # 否则视为主导说话人整条(避免重叠窗噪声把短句切碎)
-                if second_share < 0.35 or second_dur < 2.0:
+                has_tokens = bool(u.tokens and u.timestamps
+                                  and len(u.tokens) == len(u.timestamps))
+                # 有 token 时间戳:走精确拆分(内部用游程平滑判断真换人,噪声不会切碎),
+                # 哪怕次说话人占比小也尝试——这样"一段里换了人"能被拆开。
+                # 无 token 时间戳:只能按占比粗切,门槛严(次≥35%且≥2s)防误切。
+                if has_tokens:
+                    new_items.extend(self._split_utterance(u, diar_segments, _label))
+                elif second_share >= 0.35 and second_dur >= 2.0:
+                    new_items.extend(self._split_utterance(u, diar_segments, _label))
+                else:
                     u.speaker = _label(top_sid)
                     new_items.append(u)
-                    continue
-                # 跨多人且次说话人占比可观:按声纹边界拆分
-                new_items.extend(self._split_utterance(u, diar_segments, _label))
             self._items = new_items
             return len(order)
 
@@ -140,10 +191,15 @@ class MeetingRecorder:
         from livebabel.meeting.diarize import speaker_at
         # —— 精确路径:有 token 时间戳 ——
         if u.tokens and u.timestamps and len(u.tokens) == len(u.timestamps):
+            # 1) 每个 token 落到所属说话人
+            sids = [speaker_at(diar_segments, ts) for ts in u.timestamps]
+            # 2) 平滑:抹掉过短的"说话人游程"(重叠窗噪声造成的单点跳变),
+            #    游程 < MIN_RUN 个 token 的并入相邻较长说话人,避免把句子切碎。
+            sids = _smooth_runs(sids, min_run=3)
+            # 3) 按平滑后的连续游程切句
             out: List[Utterance] = []
             cur_sid = None
             cur_toks: list = []
-
             cur_ts: list = []
 
             def flush():
@@ -154,8 +210,7 @@ class MeetingRecorder:
                                              base=u.base, is_me=False,
                                              a_start=u.a_start, a_end=u.a_end,
                                              tokens=list(cur_toks), timestamps=list(cur_ts)))
-            for tok, ts in zip(u.tokens, u.timestamps):
-                sid = speaker_at(diar_segments, ts)
+            for tok, ts, sid in zip(u.tokens, u.timestamps, sids):
                 if sid != cur_sid:
                     flush()
                     cur_sid, cur_toks, cur_ts = sid, [], []
@@ -164,7 +219,6 @@ class MeetingRecorder:
             flush()
             if out:
                 return out
-            # 退化(全程没匹配到):返回原条
             return [u]
 
         # —— 退化路径:按时长比例粗切 ——
