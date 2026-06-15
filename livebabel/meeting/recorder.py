@@ -60,6 +60,56 @@ def _smooth_runs(sids: List[Optional[int]], min_run: int = 3) -> List[Optional[i
     return out
 
 
+# 句末标点:换人切点优先吸附到这些 token 之后,避免从句子中间劈断
+_SENT_END = set("。！？!?.…")
+
+
+def _snap_to_punct(tokens: List[str], sids: List[Optional[int]],
+                   window: int = 3) -> List[Optional[int]]:
+    """把"换人切点"吸附到最近的句末标点之后,避免一句话被从中间劈成两半。
+
+    声纹边界有 ~1s 粒度,常卡在换人瞬间前后、落在句子中部。这里对每个相邻
+    sid 不同的边界 i(切在 i-1|i 之间),在 [i-window, i+window) 内找最近的
+    句末标点 token,把切点移到该标点之后(即把这一小段 token 的 sid 改成边界
+    一侧的说话人),使切分发生在句子边界而非句中。只动 sids,不改 tokens。
+    """
+    if not tokens or len(tokens) != len(sids):
+        return sids
+    sids = list(sids)
+    n = len(sids)
+    # 找出所有换人边界(i 表示 i-1 与 i 之间切开)
+    bounds = [i for i in range(1, n) if sids[i] != sids[i - 1]]
+    for i in bounds:
+        left, right = sids[i - 1], sids[i]
+        # 在边界附近找最近的句末标点位置 p(标点 token 的下标)
+        best_p, best_d = None, window + 1
+        for p in range(max(0, i - window), min(n, i + window)):
+            tok = (tokens[p] or "").strip()
+            if tok and tok[-1] in _SENT_END:
+                d = abs(p - (i - 1))
+                if d < best_d:
+                    best_p, best_d = p, d
+        if best_p is None:
+            continue
+        # 切点应落在标点 token(best_p)之后,即 best_p 及之前归 left,之后归 right。
+        # 把 [当前边界, best_p] 这段按需重写 sid,使 best_p 处成为真正的换人点。
+        if best_p >= i:
+            # 标点在边界右侧:把 i..best_p 这几个 token 拉回 left(它们其实是上句尾巴)
+            for j in range(i, best_p + 1):
+                if sids[j] == right:
+                    sids[j] = left
+                else:
+                    break
+        else:
+            # 标点在边界左侧:把 best_p+1..i-1 提前归 right(下句开头被错分给了 left)
+            for j in range(best_p + 1, i):
+                if sids[j] == left:
+                    sids[j] = right
+                else:
+                    break
+    return sids
+
+
 @dataclass
 class Utterance:
     t: float                 # 相对会议开始的秒数(定稿时刻,供 UI 显示)
@@ -204,6 +254,9 @@ class MeetingRecorder:
             # 2) 平滑:抹掉过短的"说话人游程"(重叠窗噪声造成的单点跳变),
             #    游程 < MIN_RUN 个 token 的并入相邻较长说话人,避免把句子切碎。
             sids = _smooth_runs(sids, min_run=3)
+            # 2.5) 标点吸附:把换人切点挪到最近的句末标点之后,避免从句中劈断
+            sids = _snap_to_punct(u.tokens, sids, window=3)
+            sids = _smooth_runs(sids, min_run=3)  # 吸附可能又造出短游程,再平滑一次
             # 3) 按平滑后的连续游程切句
             out: List[Utterance] = []
             cur_sid = None
