@@ -150,11 +150,18 @@ class Launcher(QWidget):
         self.key_status.setObjectName("subtitle")
         set_btn = QPushButton("设置 Key")
         set_btn.clicked.connect(self._set_key)
+        hist_btn = QPushButton("历史记录")
+        hist_btn.clicked.connect(self._open_history)
         key_row.addWidget(key_lab)
         key_row.addWidget(self.key_status, 1)
+        key_row.addWidget(hist_btn)
         key_row.addWidget(set_btn)
         root.addLayout(key_row)
         self._refresh_key_status()
+
+    def _open_history(self) -> None:
+        from livebabel.history_window import HistoryWindow
+        HistoryWindow(self).exec()
 
     # ---- API Key ----
 
