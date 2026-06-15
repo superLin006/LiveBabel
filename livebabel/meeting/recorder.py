@@ -393,6 +393,22 @@ class MeetingRecorder:
                     out.append(spk)
             return out
 
+    def speaker_choices(self) -> "List[tuple]":
+        """返回 [(原始标签, 当前显示名)],供重命名 UI:列表显示【当前名】(含 AI 起的名),
+        但 rename() 仍按【原始标签】写映射,避免下拉框列原始标签、和气泡显示名对不上。
+        """
+        with self._lock:
+            seen, out = set(), []
+            for u in self._items:
+                if u.speaker not in seen:
+                    seen.add(u.speaker)
+                    out.append((u.speaker, self._rename.get(u.speaker, u.speaker)))
+            for spk in self._drafts:
+                if spk not in seen:
+                    seen.add(spk)
+                    out.append((spk, self._rename.get(spk, spk)))
+            return out
+
     def segments(self) -> List[Utterance]:
         """已定稿条目副本(应用重命名),供 UI / 导出。"""
         with self._lock:

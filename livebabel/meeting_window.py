@@ -441,18 +441,21 @@ class MeetingWindow(QWidget):
     # ---- 说话人重命名 ----
 
     def _rename_speaker(self) -> None:
-        speakers = self.recorder.speakers()
-        if not speakers:
+        choices = self.recorder.speaker_choices()   # [(原始标签, 当前显示名)]
+        if not choices:
             info(self, "暂无说话人", "还没有录到内容。")
             return
-        spk, ok = QInputDialog.getItem(
-            self, "重命名说话人", "选择要重命名的说话人:", speakers, 0, False)
+        # 下拉显示【当前名】(含 AI 起的名),用户才能对上气泡;内部记原始标签做 rename key
+        labels = [disp for _, disp in choices]
+        disp, ok = QInputDialog.getItem(
+            self, "重命名说话人", "选择要重命名的说话人:", labels, 0, False)
         if not ok:
             return
+        original = next((orig for orig, d in choices if d == disp), disp)
         name, ok = QInputDialog.getText(
-            self, "重命名说话人", f"把「{spk}」显示为:", QLineEdit.Normal, spk)
+            self, "重命名说话人", f"把「{disp}」显示为:", QLineEdit.Normal, disp)
         if ok and name.strip():
-            self.recorder.rename(spk, name.strip())
+            self.recorder.rename(original, name.strip())
             # 重命名影响已有气泡 → 全量重建
             self.transcript_list.clear()
             self._bubble_count = 0
