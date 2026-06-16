@@ -61,9 +61,10 @@ WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 ; 完整 V4+ 字段。&H..& 颜色格式 AABBGGRR。原文白(大)在上,译文青(小)在下,
-; 靠 MarginV 错开(原文 95、译文 30,间距 65px 不重叠)。描边 3px 压在视频原字幕上也清晰。
+; 靠 MarginV(距底距离)错开:译文在底(30),原文在其上(125)。距底差 95px,
+; 减去 54 号字实际字高(~70px)后净行间空隙 ~25px,上下分明又不脱节。
 ; Spacing=字符间距:之前字母挤在一起,原文设 1、译文(常含英文)设 2 撑开,更舒服。
-Style: Source,Microsoft YaHei,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,3,1,2,40,40,95,1
+Style: Source,Microsoft YaHei,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,3,1,2,40,40,125,1
 Style: Trans,Microsoft YaHei,48,&H00FFE77F,&H00FFE77F,&H00000000,&H80000000,0,0,0,0,100,100,2,0,1,3,1,2,40,40,30,1
 
 [Events]
