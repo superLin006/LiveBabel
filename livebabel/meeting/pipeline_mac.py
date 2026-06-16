@@ -33,9 +33,11 @@ class MacMeetingPipeline(MeetingPipeline):
         blocksize = int(tr.native_rate * 0.1)   # 100ms
 
         def callback(indata, frames, time_info, status):
-            # 回调里只做轻量:转 mono + 重采样 + 入队(回调在 PortAudio 内部线程)
+            # 回调里只做轻量:转 mono + 重采样 + 入队(回调在 PortAudio 内部线程)。
+            # 停止由 stop() 主动 stream.stop()/close() 完成(与 Windows 版一致),
+            # 这里不 raise CallbackStop,避免和外部停止竞争把流弄成异常态。
             if self._stop:
-                raise sd.CallbackStop
+                return
             try:
                 if indata.ndim > 1 and indata.shape[1] > 1:
                     audio = indata.mean(axis=1)
@@ -54,11 +56,8 @@ class MacMeetingPipeline(MeetingPipeline):
         return tr
 
     def start(self) -> None:
-        import sounddevice as sd
         from livebabel.asr.vad_engine import build_shared_models
-        from livebabel.asr.audio_source_mac import (
-            BlackHoleSource, MacMicrophoneSource, _find_device,
-        )
+        from livebabel.asr.audio_source_mac import _find_device, pick_microphone
         self._stop = False
         self._pa = None     # macOS 不用共享 PyAudio 实例;sounddevice 各流独立
 
@@ -75,18 +74,7 @@ class MacMeetingPipeline(MeetingPipeline):
                 idx, int(info["default_samplerate"]),
                 int(info["max_input_channels"]), "远端"))
         if self.use_mic:
-            # 默认输入设备,排除 BlackHole(别把系统声当麦克风)
-            mic_idx, mic_info = None, None
-            default_in = sd.default.device[0]
-            if default_in is not None:
-                d = sd.query_devices(default_in)
-                if "blackhole" not in d["name"].lower() and d["max_input_channels"] > 0:
-                    mic_idx, mic_info = default_in, d
-            if mic_idx is None:
-                for i, d in enumerate(sd.query_devices()):
-                    if d["max_input_channels"] > 0 and "blackhole" not in d["name"].lower():
-                        mic_idx, mic_info = i, d
-                        break
+            mic_idx, mic_info = pick_microphone()   # 排除 BlackHole 的麦克风(共用逻辑)
             if mic_idx is None:
                 raise RuntimeError("未找到可用麦克风。")
             self._tracks.append(self._open_track_sd(

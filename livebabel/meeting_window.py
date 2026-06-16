@@ -280,6 +280,13 @@ class MeetingWindow(QWidget):
                 return
             use_mic = False
             self.status.setText("未检测到麦克风,本次只录系统声音(远端)。")
+        # 需要系统声音但采集不可用(macOS 未装 BlackHole):提前给清晰引导,别等启动失败
+        if use_lb and not platform_audio.has_system_audio():
+            if not use_mic:
+                error(self, "无法录系统声音", platform_audio.system_audio_hint())
+                return
+            use_lb = False
+            self.status.setText("无法录系统声音,本次只录麦克风(我)。")
         # 清掉上一场的临时音频文件,避免泄漏
         if self.pipeline is not None:
             try:

@@ -55,6 +55,27 @@ def has_blackhole() -> bool:
         return False
 
 
+def pick_microphone():
+    """选麦克风设备(排除 BlackHole,别把系统声当麦克风)。返回 (index, info)。
+
+    优先默认输入设备;若默认是 BlackHole 或无默认,则取第一个非 BlackHole 的输入设备。
+    找不到返回 (None, None)。会议模式与实时模式共用,避免两处重复+不一致。
+    """
+    import sounddevice as sd
+    default_in = sd.default.device[0]
+    if default_in is not None and default_in >= 0:
+        try:
+            d = sd.query_devices(default_in)
+            if d["max_input_channels"] > 0 and "blackhole" not in d["name"].lower():
+                return default_in, d
+        except Exception:
+            pass
+    for i, d in enumerate(sd.query_devices()):
+        if d["max_input_channels"] > 0 and "blackhole" not in d["name"].lower():
+            return i, d
+    return None, None
+
+
 class _SdSourceBase(AudioSource):
     """sounddevice 采集基类:回调把 PCM 塞队列,frames() 从队列取并重采样到 16k。
 
@@ -145,18 +166,9 @@ class MacMicrophoneSource(_SdSourceBase):
         import sounddevice as sd
         idx = self.device_index
         if idx is None:
-            # 默认输入设备(排除 BlackHole,避免把系统声当麦克风)
-            default_in = sd.default.device[0]
-            info = sd.query_devices(default_in) if default_in is not None else None
-            if info and "blackhole" not in info["name"].lower():
-                idx = default_in
-            else:
-                idx, info = _find_device("", want_input=True)  # 取第一个有输入的
-                # 跳过 BlackHole
-                for i, d in enumerate(sd.query_devices()):
-                    if d["max_input_channels"] > 0 and "blackhole" not in d["name"].lower():
-                        idx, info = i, d
-                        break
+            idx, _ = pick_microphone()
+            if idx is None:
+                raise RuntimeError("未找到可用麦克风。")
         info = sd.query_devices(idx)
         rate = int(info["default_samplerate"])
         ch = int(info["max_input_channels"])
