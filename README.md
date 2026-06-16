@@ -120,6 +120,8 @@ flowchart LR
 - LLM 增强层做它擅长的事:给发言人起角色名、纠 ASR 同音错字、只在明显矛盾处轻改归属。
 - 声纹库:开完会确认"发言人2 是张三"可存入库,下次开会高相似度自动标真名(宁可不认不认错)。
 
+![会议纪要](docs/meeting_preview.png)
+
 ## 目录结构
 
 ```
@@ -205,8 +207,10 @@ flowchart LR
     D --> E[DeepSeek 翻译<br/>整段带上下文]
     E --> F[生成双语字幕<br/>SRT + ASS]
     F --> G[输出字幕文件]
-    F -.--burn.-> H[ffmpeg 硬压<br/>烧录进视频]
+    F -.可选烧录.-> H[ffmpeg 硬压<br/>烧录进视频]
 ```
+
+![离线字幕](docs/offline_preview.png)
 
 图形界面在主页选「离线模式」即可(可批量加多个视频)。命令行:
 
