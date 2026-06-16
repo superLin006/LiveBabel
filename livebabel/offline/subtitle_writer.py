@@ -59,8 +59,10 @@ WrapStyle: 0
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 ; 原文:白色,稍大;译文:青色,稍小。&H..& 是 ASS 颜色,格式 AABBGGRR。
-Style: Source,Microsoft YaHei,54,&H00FFFFFF,&H00000000,&H00000000,0,0,1,2,1,2,40,40,60,1
-Style: Trans,Microsoft YaHei,48,&H00FFE77F,&H00000000,&H00000000,0,0,1,2,1,2,40,40,18,1
+; 两行都底部居中(Alignment=2),靠 MarginV 上下错开:译文在底(30),原文在其上(95)。
+; 间距 65px 容得下 48~54 号字,不重叠。描边 3px 保证压在视频原有字幕上也看得清。
+Style: Source,Microsoft YaHei,54,&H00FFFFFF,&H00000000,&H80000000,0,0,1,3,1,2,40,40,95,1
+Style: Trans,Microsoft YaHei,48,&H00FFE77F,&H00000000,&H80000000,0,0,1,3,1,2,40,40,30,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
