@@ -44,7 +44,9 @@ def write_srt(sentences: List[Sentence], path: str, bilingual: bool = True) -> N
         if bilingual and s.translation:
             lines.append(s.translation)
         lines.append("")          # 空行分隔
-    with open(path, "w", encoding="utf-8") as f:
+    # utf-8-sig 写入 BOM:很多 Windows 播放器(PotPlayer 等)对无 BOM 文本默认按
+    # GBK/ANSI 解码,会把 UTF-8 中文显示成乱码。带 BOM 后所有播放器都能正确识别。
+    with open(path, "w", encoding="utf-8-sig") as f:
         f.write("\n".join(lines))
 
 
@@ -57,12 +59,12 @@ PlayResY: 1080
 WrapStyle: 0
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-; 原文:白色,稍大;译文:青色,稍小。&H..& 是 ASS 颜色,格式 AABBGGRR。
-; 两行都底部居中(Alignment=2),靠 MarginV 上下错开:译文在底(30),原文在其上(95)。
-; 间距 65px 容得下 48~54 号字,不重叠。描边 3px 保证压在视频原有字幕上也看得清。
-Style: Source,Microsoft YaHei,54,&H00FFFFFF,&H00000000,&H80000000,0,0,1,3,1,2,40,40,95,1
-Style: Trans,Microsoft YaHei,48,&H00FFE77F,&H00000000,&H80000000,0,0,1,3,1,2,40,40,30,1
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+; 完整 V4+ 字段。&H..& 颜色格式 AABBGGRR。原文白(大)在上,译文青(小)在下,
+; 靠 MarginV 错开(原文 95、译文 30,间距 65px 不重叠)。描边 3px 压在视频原字幕上也清晰。
+; Spacing=字符间距:之前字母挤在一起,原文设 1、译文(常含英文)设 2 撑开,更舒服。
+Style: Source,Microsoft YaHei,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,3,1,2,40,40,95,1
+Style: Trans,Microsoft YaHei,48,&H00FFE77F,&H00FFE77F,&H00000000,&H80000000,0,0,0,0,100,100,2,0,1,3,1,2,40,40,30,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -82,5 +84,5 @@ def write_ass(sentences: List[Sentence], path: str, bilingual: bool = True) -> N
         if bilingual and s.translation:
             rows.append(f"Dialogue: 0,{start},{end},Trans,,0,0,0,,{_ass_escape(s.translation)}")
         rows.append(f"Dialogue: 0,{start},{end},Source,,0,0,0,,{_ass_escape(s.text)}")
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8-sig") as f:   # BOM:防播放器按 GBK 读成乱码
         f.write("\n".join(rows) + "\n")
