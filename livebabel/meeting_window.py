@@ -90,6 +90,8 @@ class MeetingWindow(QWidget):
         self.pipeline = None
         self._minutes_md = ""
         self._busy = False
+        self._diar_centroids = {}        # 最近一次区分说话人的 {聚类号: 质心},供声纹库登记
+        self._recognized_labels = set()  # 被声纹库自动认出的标签
 
         self.setWindowTitle("LiveBabel · 会议纪要")
         self.resize(680, 680)
@@ -400,14 +402,31 @@ class MeetingWindow(QWidget):
                 def prog(done, total):
                     if total:
                         self.bridge.diar_progress.emit(int(100 * done / total))
-                segs = diar.diarize(audio, num_speakers=num, on_progress=prog)
+                segs, centroids = diar.diarize(audio, num_speakers=num,
+                                               on_progress=prog, return_centroids=True)
                 n = self.recorder.refine_speaker("远端", segs)
+                # 声纹库自动认人:每个聚类质心比库,够像(高阈值)就标真名。
+                # 在 LLM 之前写,且声纹认出的优先(真实身份 > LLM 猜名)。
+                self._diar_centroids = centroids        # 存给"存入声纹库"用
+                recognized = set()
+                try:
+                    from livebabel.meeting import voiceprint as vpmod
+                    sid2label = self.recorder.last_diar_labels()
+                    for sid, vec in centroids.items():
+                        m = vpmod.match(vec)
+                        if m and sid in sid2label:
+                            self.recorder.rename(sid2label[sid], m[0])
+                            recognized.add(sid2label[sid])
+                except Exception:
+                    pass
+                self._recognized_labels = recognized
                 # 声纹分完,若多于 1 人且有 key,自动用 LLM 增强:起名/纠错/轻改归属
                 if n > 1 and (api_key or "").strip():
                     self.bridge.diar_progress.emit(100)
                     self.bridge.diar_status.emit("正在用 AI 优化(起名/纠错)…")
                     try:
-                        self.recorder.apply_llm_correction(api_key=api_key)
+                        self.recorder.apply_llm_correction(
+                            api_key=api_key, protect=recognized)
                     except Exception:
                         pass
                 self.bridge.diar_ok.emit(n)
@@ -425,9 +444,13 @@ class MeetingWindow(QWidget):
         self._bubble_count = 0
         self._draft_items = 0
         self._refresh_transcript()
+        rec_n = len(getattr(self, "_recognized_labels", set()))
         if n > 1:
             tip = "(声纹+AI校正,可再重命名)" if (self._api_key or "").strip() else "(可再重命名)"
-            self.status.setText(f"✓ 远端已区分为 {n} 位发言人{tip}")
+            msg = f"✓ 远端已区分为 {n} 位发言人{tip}"
+            if rec_n:
+                msg += f";声纹库自动认出 {rec_n} 人"
+            self.status.setText(msg)
         else:
             self.status.setText("✓ 分析完成:远端只识别到 1 位发言人")
 
@@ -455,12 +478,35 @@ class MeetingWindow(QWidget):
         name, ok = QInputDialog.getText(
             self, "重命名说话人", f"把「{disp}」显示为:", QLineEdit.Normal, disp)
         if ok and name.strip():
-            self.recorder.rename(original, name.strip())
+            name = name.strip()
+            self.recorder.rename(original, name)
             # 重命名影响已有气泡 → 全量重建
             self.transcript_list.clear()
             self._bubble_count = 0
             self._draft_items = 0
             self._refresh_transcript()
+            self._maybe_enroll_voiceprint(original, name)
+
+    def _maybe_enroll_voiceprint(self, label: str, name: str) -> None:
+        """若该标签对应一个声纹质心(刚做过区分说话人),问是否把它存入声纹库,
+        以后开会自动认出这个人。"""
+        centroids = getattr(self, "_diar_centroids", None)
+        if not centroids:
+            return
+        # 标签 "远端-发言人N" → 反查聚类号 sid → 质心
+        sid2label = self.recorder.last_diar_labels()
+        sid = next((s for s, lab in sid2label.items() if lab == label), None)
+        if sid is None or sid not in centroids:
+            return
+        from livebabel.gui_common import confirm
+        if confirm(self, "存入声纹库",
+                   f"把「{name}」的声纹记住吗?\n以后开会会自动认出 ta,不用再手动改名。"):
+            try:
+                from livebabel.meeting import voiceprint as vpmod
+                vpmod.enroll(name, centroids[sid])
+                self.status.setText(f"✓ 已把「{name}」存入声纹库")
+            except Exception as e:
+                error(self, "存入失败", str(e))
 
     # ---- 纪要 ----
 
