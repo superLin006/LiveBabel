@@ -27,6 +27,11 @@ def build_source(args):
     if args.input:
         from livebabel.asr.audio_source import FileSource
         return FileSource(args.input, realtime=True)
+    # 抓系统声音:Windows 用 WASAPI loopback;macOS 用 BlackHole 虚拟声卡
+    import sys
+    if sys.platform == "darwin":
+        from livebabel.asr.audio_source_mac import BlackHoleSource
+        return BlackHoleSource()
     from livebabel.asr.audio_source_windows import WasapiLoopbackSource
     return WasapiLoopbackSource()
 

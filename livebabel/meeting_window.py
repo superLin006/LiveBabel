@@ -241,8 +241,8 @@ class MeetingWindow(QWidget):
     def _refresh_mic_state(self) -> None:
         """检测麦克风:有则启用含麦选项;无则禁用并默认「仅系统声音」+ 提示。"""
         from PySide6.QtCore import Qt as _Qt
-        from livebabel.asr.audio_source_mic import MicrophoneSource
-        has_mic = MicrophoneSource.has_microphone()
+        from livebabel.meeting import platform_audio
+        has_mic = platform_audio.has_microphone()
         model = self.src_combo.model()
         # 索引 0(我+远端)、2(仅麦克风)需要麦克风
         for i in (0, 2):
@@ -268,13 +268,12 @@ class MeetingWindow(QWidget):
             self._start_record()
 
     def _start_record(self) -> None:
-        from livebabel.meeting.pipeline import MeetingPipeline
-        from livebabel.asr.audio_source_mic import MicrophoneSource
+        from livebabel.meeting import platform_audio
         idx = self.src_combo.currentIndex()
         use_mic = idx in (0, 2)
         use_lb = idx in (0, 1)
         # 选了含麦但实际没麦:仅麦克风→拦下;我+远端→降级为仅远端并提示
-        if use_mic and not MicrophoneSource.has_microphone():
+        if use_mic and not platform_audio.has_microphone():
             if not use_lb:
                 error(self, "无麦克风",
                       "未检测到麦克风,无法「仅麦克风」录制。请插麦克风后点「刷新设备」。")
@@ -292,14 +291,16 @@ class MeetingWindow(QWidget):
         self._bubble_count = 0
         self._draft_items = 0
         self.status.setText("正在加载模型并录制…(首次稍慢)")
-        self.pipeline = MeetingPipeline(
+        from livebabel.meeting import platform_audio
+        self.pipeline = platform_audio.make_pipeline(
             self.recorder, on_update=self.bridge.transcript_dirty.emit,
             use_mic=use_mic, use_loopback=use_lb)
         try:
             self.pipeline.start()
         except Exception as e:
+            dep = "BlackHole / 麦克风" if platform_audio.IS_MAC else "pyaudiowpatch、麦克风"
             error(self, "录制启动失败",
-                  f"{type(e).__name__}: {e}\n\n请确认已安装 pyaudiowpatch、麦克风可用。")
+                  f"{type(e).__name__}: {e}\n\n请确认已安装 {dep} 可用。")
             self.pipeline = None
             self.status.setText("✗ 启动失败")
             return

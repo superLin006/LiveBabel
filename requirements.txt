@@ -1,12 +1,15 @@
-# 实时双语字幕 —— Windows 运行依赖
-# 用法见 setup_windows.bat / run_windows.bat
+# 实时双语字幕 —— 运行依赖(Windows / macOS)
+# 用法见 setup_windows.bat / run_windows.bat;macOS 见 README 的 mac 章节
 sherpa-onnx==1.13.2
 numpy
 soundfile
 requests
 rich
 PySide6
-pyaudiowpatch        # Windows 系统声音采集(WASAPI loopback),仅 Windows 可装
+
+# 音频采集:按平台自动选(PEP 508 环境标记,pip 会按 OS 跳过不匹配的)
+pyaudiowpatch ; platform_system == "Windows"   # Windows 系统声音(WASAPI loopback)
+sounddevice   ; platform_system == "Darwin"    # macOS 采集(PortAudio;配 BlackHole 抓系统声)
 
 # 离线模式(tools/offline_subtitle.py)。不用离线功能可不装。
 faster-whisper       # 离线识别(large-v3-turbo,99 语言,带时间戳,不依赖 torch)
