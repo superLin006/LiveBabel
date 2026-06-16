@@ -11,10 +11,19 @@ import sys
 
 
 def app_dir() -> str:
-    """程序根目录:打包后是 exe 所在目录,源码运行是项目根目录(本文件在 livebabel/ 下,
-    上溯一级到项目根,models/ history/ settings.json 都在那里)。"""
+    """程序根目录:放 models/ history/ settings.json 的地方。
+      * 源码运行:项目根(本文件在 livebabel/ 下,上溯一级)。
+      * Windows PyInstaller:exe 所在目录(models 与 exe 同级)。
+      * macOS .app(py2app):可执行文件在 LiveBabel.app/Contents/MacOS/,
+        资源拷在 Contents/Resources/,故指向 Resources(build_mac.sh 把 models
+        放那里)。否则会按 MacOS/ 找模型而崩溃。
+    """
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+        exe_dir = os.path.dirname(sys.executable)
+        if sys.platform == "darwin" and os.path.basename(exe_dir) == "MacOS":
+            # .../Contents/MacOS → .../Contents/Resources
+            return os.path.join(os.path.dirname(exe_dir), "Resources")
+        return exe_dir
     # livebabel/paths.py → 上溯一级 = 项目根
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

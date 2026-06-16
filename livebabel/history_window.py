@@ -74,7 +74,11 @@ def _open_in_explorer(path: str) -> None:
             else:
                 os.startfile(path)  # 目录
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", "-R" if os.path.isfile(path) else path, path])
+            # 文件:open -R 在 Finder 里高亮定位;目录:直接 open 打开
+            if os.path.isfile(path):
+                subprocess.Popen(["open", "-R", path])
+            else:
+                subprocess.Popen(["open", path])
         else:
             subprocess.Popen(["xdg-open", path if os.path.isdir(path) else os.path.dirname(path)])
     except Exception:
