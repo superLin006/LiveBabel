@@ -64,8 +64,10 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 ; 字号:原文 42、译文 38(1080p 下不占屏)。靠 MarginV(距底距离)错开:译文 30、
 ; 原文 110,距底差 80px 减去 ~42 字高后净空隙 ~25px,字变小后行距观感不变。
 ; Spacing=字符间距:之前字母挤在一起,原文设 1、译文(常含英文)设 2 撑开,更舒服。
-Style: Source,Microsoft YaHei,42,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,3,1,2,40,40,110,1
-Style: Trans,Microsoft YaHei,38,&H00FFE77F,&H00FFE77F,&H00000000,&H80000000,0,0,0,0,100,100,2,0,1,3,1,2,40,40,30,1
+; Outline=2 描边、Shadow=0 无阴影:之前 Shadow=1 的投影在小字号下像虚影/重影,去掉;
+; 描边 3→2 适配缩小后的字号,边缘更利落。
+Style: Source,Microsoft YaHei,42,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,1,0,1,2,0,2,40,40,110,1
+Style: Trans,Microsoft YaHei,38,&H00FFE77F,&H00FFE77F,&H00000000,&H80000000,0,0,0,0,100,100,2,0,1,2,0,2,40,40,30,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
