@@ -184,11 +184,14 @@ def _segment_windows(audio, sr, vad_model, sherpa_onnx,
 
 
 def diarize(samples, sample_rate: int = 16000, num_speakers: int = -1,
-            cluster_threshold: float = 0.7, on_progress=None) -> List[SpkSegment]:
+            cluster_threshold: float = 0.7, on_progress=None,
+            return_centroids: bool = False):
     """对整段音频做说话人分离。
 
     samples: float32 mono numpy(16k)。num_speakers: 正整数=已知人数(最准);
     -1=自动估计。返回按时间排序的 [SpkSegment]。
+    return_centroids=True 时返回 (segments, {聚类号: L2 归一化质心向量}),
+    供声纹库登记/比对(每个说话人一个代表声纹)。
     """
     import numpy as np
     import sherpa_onnx
@@ -256,7 +259,18 @@ def diarize(samples, sample_rate: int = 16000, num_speakers: int = -1,
             out[-1].end = max(out[-1].end, a1)   # 同人且相邻/重叠 → 合并
         else:
             out.append(SpkSegment(start=a0, end=a1, speaker=int(lab)))
-    return out
+
+    if not return_centroids:
+        return out
+    # 每个聚类的质心(该聚类所有窗 embedding 的平均,再 L2 归一化)→ 代表声纹
+    centroids = {}
+    labs = np.asarray(labels)
+    for lab in set(int(l) for l in labels):
+        m = labs == lab
+        if m.any():
+            c = E[m].mean(0)
+            centroids[lab] = (c / (np.linalg.norm(c) + 1e-9)).astype(np.float32)
+    return out, centroids
 
 
 def speaker_at(segments: List[SpkSegment], t: float) -> Optional[int]:

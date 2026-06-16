@@ -213,15 +213,24 @@ class MeetingRecorder:
                     u.speaker = _label(top_sid)
                     new_items.append(u)
             self._items = new_items
+            # 记录本次 聚类号sid → 显示标签("远端-发言人N") 的映射,供声纹库按 sid 认人
+            self._last_diar_labels = {
+                sid: label_fmt.format(base=disp_base, n=n) for sid, n in order.items()}
             return len(order)
 
-    def apply_llm_correction(self, api_key: str = "") -> dict:
+    def last_diar_labels(self) -> dict:
+        """最近一次 refine_speaker 的 {聚类号sid: 显示标签} 映射(声纹库认人用)。"""
+        return dict(getattr(self, "_last_diar_labels", {}))
+
+    def apply_llm_correction(self, api_key: str = "", protect: set = None) -> dict:
         """声纹分完后,用 LLM 做增强:① 给说话人起名/角色 ② 纠 ASR 同音错字
         ③ 仅在明显矛盾处轻改归属。返回 {'named':n, 'fixed':n, 'reassigned':n}。
 
         只对已细分(speaker 含"-发言人")的条目做。无 key/失败则不动、返回全 0。
+        protect: 已被声纹库认出真名的标签集合,LLM 不再给它们起名(真实身份优先)。
         """
         from livebabel.meeting.llm_refine import refine
+        protect = protect or set()
         stat = {"named": 0, "fixed": 0, "reassigned": 0}
         with self._lock:
             idxs = [i for i, u in enumerate(self._items) if "-发言人" in u.speaker]
@@ -233,8 +242,10 @@ class MeetingRecorder:
         # 网络请求在锁外(别占锁等网络)
         res = refine(items, api_key=api_key)
         with self._lock:
-            # ① 起名:写进 _rename(显示层映射,segments() 会应用)
+            # ① 起名:写进 _rename(显示层映射,segments() 会应用);声纹已认出的不覆盖
             for label, name in res.names.items():
+                if label in protect:
+                    continue
                 if self._rename.get(label) != name:
                     self._rename[label] = name
                     stat["named"] += 1
