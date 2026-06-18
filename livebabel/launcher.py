@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from livebabel.gui_common import (
     apply_theme, ACCENT, ACCENT_DEEP, BORDER, CARD, CARD_HOVER, SUBTEXT,
+    LAUNCHER_W, LAUNCHER_H,
 )
 from livebabel.overlay import load_settings, save_settings
 
@@ -43,14 +44,24 @@ class ModeCard(QFrame):
         self.setObjectName("card")
         self.setStyleSheet(self._qss())
 
+        # 苹果风卡片:柔和投影,营造"浮于浅灰背景之上"的层次感
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        from PySide6.QtGui import QColor
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setXOffset(0)
+        shadow.setYOffset(4)
+        shadow.setColor(QColor(0, 0, 0, 28))
+        self.setGraphicsEffect(shadow)
+
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(22, 22, 22, 22)
-        lay.setSpacing(8)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(10)
 
         icon = QLabel(emoji)
-        icon.setStyleSheet("font-size: 40px; background: transparent;")
+        icon.setStyleSheet("font-size: 42px; background: transparent;")
         t = QLabel(title)
-        t.setStyleSheet("font-size: 17px; font-weight: bold; background: transparent;")
+        t.setStyleSheet("font-size: 18px; font-weight: 600; background: transparent;")
         d = QLabel(desc)
         d.setWordWrap(True)
         d.setStyleSheet(f"color: {SUBTEXT}; font-size: 12px; background: transparent;")
@@ -71,12 +82,12 @@ class ModeCard(QFrame):
         if not self._enabled:
             return (
                 f"#card {{ background: {CARD}; border: 1px solid {BORDER};"
-                f" border-radius: 12px; }}"
+                f" border-radius: 14px; }}"
             )
         return (
             f"#card {{ background: {CARD}; border: 1px solid {BORDER};"
-            f" border-radius: 12px; }}"
-            f"#card:hover {{ background: {CARD_HOVER}; border: 1px solid {ACCENT_DEEP}; }}"
+            f" border-radius: 14px; }}"
+            f"#card:hover {{ background: {CARD}; border: 1.5px solid {ACCENT}; }}"
         )
 
     def mouseReleaseEvent(self, e) -> None:
@@ -94,7 +105,7 @@ class Launcher(QWidget):
         self._live_thread = None
 
         self.setWindowTitle("LiveBabel")
-        self.resize(560, 460)
+        self.resize(LAUNCHER_W, LAUNCHER_H)
         from livebabel.gui_common import app_icon
         self.setWindowIcon(app_icon())
         apply_theme(self)
@@ -110,7 +121,7 @@ class Launcher(QWidget):
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 28, 32, 24)
+        root.setContentsMargins(40, 36, 40, 28)
         root.setSpacing(6)
 
         title = QLabel("LiveBabel")
@@ -119,10 +130,10 @@ class Launcher(QWidget):
         sub.setObjectName("subtitle")
         root.addWidget(title)
         root.addWidget(sub)
-        root.addSpacing(18)
+        root.addSpacing(28)
 
         cards = QHBoxLayout()
-        cards.setSpacing(16)
+        cards.setSpacing(18)
         cards.addWidget(ModeCard(
             "🎧", "实时模式",
             "抓取电脑正在播放的声音,实时识别并翻译,以悬浮字幕显示。适合看直播 / 视频会议 / 在线课程。",
@@ -140,10 +151,13 @@ class Launcher(QWidget):
         ))
         root.addLayout(cards, 1)
 
-        root.addSpacing(16)
+        root.addSpacing(24)
 
-        # API Key 一行
+        # API Key 底部面板(包成卡片,作为页脚信息区)
+        from livebabel.gui_common import card
+        key_card, kc = card(padding=14)
         key_row = QHBoxLayout()
+        key_row.setSpacing(10)
         key_lab = QLabel("DeepSeek API Key")
         key_lab.setObjectName("section")
         self.key_status = QLabel()
@@ -156,8 +170,15 @@ class Launcher(QWidget):
         key_row.addWidget(self.key_status, 1)
         key_row.addWidget(hist_btn)
         key_row.addWidget(set_btn)
-        root.addLayout(key_row)
+        kc.addLayout(key_row)
+        root.addWidget(key_card)
         self._refresh_key_status()
+
+    @staticmethod
+    def _whisper_local() -> bool:
+        """本地是否已放了离线 whisper 模型目录(放了就不会触发联网下载)。"""
+        from livebabel.paths import WHISPER_DIR
+        return os.path.isdir(WHISPER_DIR) and bool(os.listdir(WHISPER_DIR))
 
     def _open_history(self) -> None:
         from livebabel.history_window import HistoryWindow
@@ -204,6 +225,14 @@ class Launcher(QWidget):
     # ---- 模式 ----
 
     def _open_offline(self) -> None:
+        # 离线用 faster-whisper(large-v3-turbo)。本地没放模型时首次会自动联网下载
+        # (约 1.6GB,下到本机缓存,仅一次)。这里只做一次性友好提示,不阻断。
+        if self._offline_win is None and not self._whisper_local():
+            from livebabel.gui_common import info
+            info(self, "离线模式 · 首次需下载模型",
+                 "离线字幕使用 Whisper large-v3-turbo 模型。\n\n"
+                 "首次转写会自动联网下载约 1.6GB 模型(仅一次,之后无需联网),"
+                 "期间界面可能停顿,属正常现象,请耐心等待。")
         from livebabel.offline_window import OfflineWindow
         if self._offline_win is None:
             self._offline_win = OfflineWindow(api_key=self._effective_key())
@@ -335,6 +364,16 @@ def main() -> None:
     from livebabel.gui_common import apply_app_theme, app_icon
     apply_app_theme(app)            # 全局深色调色板,消除白边/白底弹窗
     app.setWindowIcon(app_icon())   # 任务栏/弹窗/所有窗口默认图标
+    # 首次使用:核心模型缺失则先弹下载窗(下完才进主页;取消则退出)
+    from livebabel.model_setup import models_ready
+    if not models_ready():
+        from livebabel.model_download_dialog import ModelDownloadDialog
+        dlg = ModelDownloadDialog()
+        dlg.exec()
+        if not dlg.models_ready():
+            # 用户取消 / 下载未完成:没有模型无法运行,直接退出
+            sys.exit(0)
+
     win = Launcher()
     win.show()
     sys.exit(app.exec())

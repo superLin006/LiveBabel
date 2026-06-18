@@ -120,6 +120,7 @@ class MeetingPipeline:
         tr = _Track(speaker)
         # 共享模型权重(两路只加载一份 zipformer/SenseVoice,各自独立 vad/stream)
         tr.asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR,
+                               provider=getattr(self, "_provider", "auto"),
                                shared_first=self._shared_first,
                                shared_second=self._shared_second)
         tr.native_rate = int(dev["defaultSampleRate"])
@@ -155,8 +156,12 @@ class MeetingPipeline:
         self._stop = False
         self._pa = pyaudio.PyAudio()
 
-        # 一份共享模型(两路引擎复用,省一份大模型内存)
-        self._shared_first, self._shared_second, _ = build_shared_models(FIRST_DIR, SECOND_DIR)
+        # 一份共享模型(两路引擎复用,省一份大模型内存)。
+        # 关键:接住实际用的 provider —— GPU 失败回退 CPU 时,各 track 的引擎也必须
+        # 用同一个 CPU provider,否则它们会自行 detect 又选回 cuda,在建 VAD/stream 时
+        # 因 CUDA dll 加载失败(Error 1114)抛 RuntimeError(共享路径无回退)。
+        self._shared_first, self._shared_second, self._provider = \
+            build_shared_models(FIRST_DIR, SECOND_DIR)
 
         if self.use_loopback:
             dev = WasapiLoopbackSource()._find_loopback_device(self._pa)

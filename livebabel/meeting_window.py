@@ -17,19 +17,17 @@ from PySide6.QtWidgets import (
 )
 
 from livebabel.gui_common import (
-    apply_theme, app_icon, info, error, SUBTEXT, ACCENT, ACCENT_DEEP, CARD, CARD_HOVER, BORDER,
+    apply_theme, app_icon, info, error, card, section_label,
+    TEXT, SUBTEXT, ACCENT, CARD, BORDER, DANGER, WIN_W, WIN_H,
 )
 from livebabel.meeting.recorder import MeetingRecorder
 
 
-# 给不同说话人分配稳定的气泡底色(我=青,远端/其他循环取色)
-_SPK_COLORS = ["#2C5C68", "#3A3D48", "#4A3A5A", "#3A4A38", "#5A4A38"]
-
-
 def _bubble_widget(speaker: str, ts: str, text: str, is_me: bool, draft: bool = False) -> QWidget:
-    """一条聊天气泡:我→右侧青色,其他→左侧灰色,顶部小字显示 说话人·时间。
+    """一条聊天气泡(iMessage 风):我→右侧蓝色白字,其他→左侧浅灰深字,
+    顶部小字显示 说话人·时间。
 
-    draft=True 为未定稿草稿:气泡半透明、文字偏暗、末尾加"…",定稿后会被正式气泡替换。
+    draft=True 为未定稿草稿:气泡更淡、文字偏灰、末尾加"…",定稿后会被正式气泡替换。
     """
     row = QWidget()
     h = QHBoxLayout(row)
@@ -38,16 +36,16 @@ def _bubble_widget(speaker: str, ts: str, text: str, is_me: bool, draft: bool = 
     bubble = QFrame()
     bubble.setObjectName("bubble")
     if draft:
-        # 草稿:统一暗灰半透明,区别于定稿
-        color = "#33363F"
-        fg = "#AEB4C0"
+        # 草稿:统一极淡灰,区别于定稿
+        color = "#F0F0F3"
+        fg = SUBTEXT
         sub = SUBTEXT
     else:
-        color = ACCENT_DEEP if is_me else CARD_HOVER
-        fg = "#08222A" if is_me else "#E8E9ED"
-        sub = "#0A2A33" if is_me else SUBTEXT
+        color = ACCENT if is_me else "#E9E9EB"
+        fg = "#FFFFFF" if is_me else TEXT
+        sub = "#E3F0FF" if is_me else SUBTEXT
     bubble.setStyleSheet(
-        f"#bubble{{background:{color};border-radius:10px;}}"
+        f"#bubble{{background:{color};border-radius:14px;}}"
     )
     bv = QVBoxLayout(bubble)
     bv.setContentsMargins(12, 7, 12, 8)
@@ -56,8 +54,8 @@ def _bubble_widget(speaker: str, ts: str, text: str, is_me: bool, draft: bool = 
     head.setStyleSheet(f"color:{sub};font-size:11px;background:transparent;")
     body = QLabel(text + (" …" if draft else ""))
     body.setWordWrap(True)
-    body.setStyleSheet(f"color:{fg};font-size:13px;background:transparent;"
-                       + ("font-style:italic;" if draft else ""))
+    # 草稿不再用斜体(看着累),仅靠更淡的气泡底色 + "…" 区分未定稿
+    body.setStyleSheet(f"color:{fg};font-size:13px;background:transparent;")
     body.setMaximumWidth(420)
     bv.addWidget(head)
     bv.addWidget(body)
@@ -94,7 +92,7 @@ class MeetingWindow(QWidget):
         self._recognized_labels = set()  # 被声纹库自动认出的标签
 
         self.setWindowTitle("LiveBabel · 会议纪要")
-        self.resize(680, 680)
+        self.resize(WIN_W, WIN_H)
         self.setWindowIcon(app_icon())
         apply_theme(self)
         self._dark_titlebar_done = False
@@ -133,8 +131,8 @@ class MeetingWindow(QWidget):
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 20)
-        root.setSpacing(12)
+        root.setContentsMargins(32, 26, 32, 24)
+        root.setSpacing(16)
 
         title = QLabel("会议纪要")
         title.setObjectName("title")
@@ -143,41 +141,44 @@ class MeetingWindow(QWidget):
         root.addWidget(title)
         root.addWidget(sub)
 
-        # 音频源 + 录制控制
-        ctl = QHBoxLayout()
-        ctl.addWidget(QLabel("音频源"))
+        # —— 卡片:音频源 + 录制 ——
+        ctl_card, cc = card()
+        cc.addWidget(section_label("音频源"))
+        src_row = QHBoxLayout()
+        src_row.setSpacing(10)
         self.src_combo = QComboBox()
         self.src_combo.addItems([
             "麦克风 + 系统声音(线上会议:我+远端)",
             "仅系统声音(只录远端/外放)",
             "仅麦克风(只录我/线下)",
         ])
-        ctl.addWidget(self.src_combo, 1)
+        src_row.addWidget(self.src_combo, 1)
         refresh_btn = QPushButton("刷新设备")
         refresh_btn.clicked.connect(self._refresh_mic_state)
-        ctl.addWidget(refresh_btn)
+        src_row.addWidget(refresh_btn)
         self.rec_btn = QPushButton("开始录制")
         self.rec_btn.setObjectName("primary")
         self.rec_btn.clicked.connect(self._toggle_record)
-        ctl.addWidget(self.rec_btn)
-        root.addLayout(ctl)
-
-        # 醒目状态条:录制中显示红点 + 计时
+        src_row.addWidget(self.rec_btn)
+        cc.addLayout(src_row)
+        # 状态条:录制中显示红点 + 计时
         st_row = QHBoxLayout()
+        st_row.setSpacing(8)
         self.rec_dot = QLabel("●")
-        self.rec_dot.setStyleSheet("color:#FF5C5C;font-size:13px;")
+        self.rec_dot.setStyleSheet(f"color:{DANGER};font-size:13px;")
         self.rec_dot.hide()
         self.status = QLabel("就绪")
         self.status.setObjectName("subtitle")
         st_row.addWidget(self.rec_dot)
         st_row.addWidget(self.status, 1)
-        root.addLayout(st_row)
+        cc.addLayout(st_row)
+        root.addWidget(ctl_card)
 
-        # 实时转录(聊天气泡)
+        # —— 实时转录区:标题 + 右侧次级工具(说话人分离)——
         head_row = QHBoxLayout()
-        head_row.addWidget(self._section("实时转录"))
+        head_row.setSpacing(8)
+        head_row.addWidget(section_label("实时转录"))
         head_row.addStretch(1)
-        # 会后说话人分离:把"远端"细分成多个发言人
         head_row.addWidget(QLabel("远端人数"))
         self.spk_count = QComboBox()
         self.spk_count.addItems(["2", "3", "4", "5", "6", "自动"])  # 默认 2 人,指定最准
@@ -194,9 +195,13 @@ class MeetingWindow(QWidget):
 
         self.transcript_list = QListWidget()
         self.transcript_list.setObjectName("transcript")
+        # 覆盖全局 QListWidget::item 的 padding(气泡自带边距,item 再加 padding
+        # 会与 setSizeHint 算出的高度冲突,导致气泡顶部被裁切)
         self.transcript_list.setStyleSheet(
             f"#transcript{{background:{CARD};border:1px solid {BORDER};"
-            f"border-radius:8px;}}#transcript::item{{border:none;}}"
+            f"border-radius:12px;padding:6px;}}"
+            f"#transcript::item{{border:none;padding:0px;background:transparent;}}"
+            f"#transcript::item:hover{{background:transparent;}}"
         )
         self.transcript_list.setSpacing(0)
         self.transcript_list.setSelectionMode(QListWidget.NoSelection)
@@ -207,7 +212,8 @@ class MeetingWindow(QWidget):
 
         # 纪要:标题行带风格选择 + 生成按钮
         m_head = QHBoxLayout()
-        m_head.addWidget(self._section("纪要"))
+        m_head.setSpacing(8)
+        m_head.addWidget(section_label("纪要"))
         m_head.addStretch(1)
         self.style_combo = QComboBox()
         self.style_combo.addItems(["结构化纪要", "简洁要点"])
@@ -232,11 +238,6 @@ class MeetingWindow(QWidget):
         root.addLayout(exp_row)
 
         self._refresh_mic_state()   # 根据有无麦克风调整可选项
-
-    def _section(self, text: str) -> QLabel:
-        lab = QLabel(text)
-        lab.setObjectName("section")
-        return lab
 
     def _refresh_mic_state(self) -> None:
         """检测麦克风:有则启用含麦选项;无则禁用并默认「仅系统声音」+ 提示。"""
@@ -334,7 +335,7 @@ class MeetingWindow(QWidget):
         self.rec_dot.setVisible(not self.rec_dot.isVisible() or True)  # 保持显示
         vis = (el % 2 == 0)
         self.rec_dot.setStyleSheet(
-            f"color:{'#FF5C5C' if vis else '#7A2A2A'};font-size:13px;")
+            f"color:{DANGER if vis else '#F3B0AC'};font-size:13px;")
         self.status.setText(f"录制中  {el // 60:02d}:{el % 60:02d}")
 
     # ---- 转录刷新(节流)----
@@ -349,26 +350,52 @@ class MeetingWindow(QWidget):
             self._refresh_transcript()
 
     def _refresh_transcript(self) -> None:
-        """定稿气泡增量追加(稳定不闪);草稿气泡每次刷新重建并置于末尾(浅色,会变)。"""
+        """定稿气泡增量追加(稳定不闪);草稿气泡尽量【原地更新】而非删了重建,
+        消除每次刷新整列重排造成的"晃动"。"""
         lst = self.transcript_list
-        # 1) 先移除上次的草稿气泡(它们在列表尾部)
-        for _ in range(getattr(self, "_draft_items", 0)):
+
+        # 1) 增量追加新定稿(插在草稿之前,保持顺序)
+        segs = self.recorder.segments()
+        new_segs = segs[self._bubble_count:]
+        if new_segs:
+            # 有新定稿时,先清掉旧草稿(草稿在尾部),稍后按最新草稿重建
+            for _ in range(getattr(self, "_draft_items", 0)):
+                it = lst.takeItem(lst.count() - 1)
+                del it
+            self._draft_items = 0
+            for u in new_segs:
+                w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t), u.text, u.is_me)
+                item = QListWidgetItem(lst)
+                item.setSizeHint(w.sizeHint())
+                lst.addItem(item)
+                lst.setItemWidget(item, w)
+            self._bubble_count = len(segs)
+
+        # 2) 草稿气泡:数量不变时【原地换内容】,数量变了才重建(避免整列闪)
+        drafts = self.recorder.drafts()
+        near_bottom = self._near_bottom()
+        if len(drafts) == self._draft_items and self._draft_items > 0:
+            base = lst.count() - self._draft_items
+            changed = False
+            for i, u in enumerate(drafts):
+                item = lst.item(base + i)
+                w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t),
+                                   u.text, u.is_me, draft=True)
+                old = lst.itemWidget(item)
+                if old is None or w.sizeHint() != item.sizeHint():
+                    item.setSizeHint(w.sizeHint())
+                    changed = True
+                lst.setItemWidget(item, w)
+            # 内容原地替换,不增删 item;仅当高度变化时才需要滚动跟随
+            if changed and near_bottom:
+                lst.scrollToBottom()
+            return
+        # 数量变化:重建草稿区
+        for _ in range(self._draft_items):
             it = lst.takeItem(lst.count() - 1)
             del it
         self._draft_items = 0
-
-        # 2) 增量追加新定稿
-        segs = self.recorder.segments()
-        for u in segs[self._bubble_count:]:
-            w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t), u.text, u.is_me)
-            item = QListWidgetItem(lst)
-            item.setSizeHint(w.sizeHint())
-            lst.addItem(item)
-            lst.setItemWidget(item, w)
-        self._bubble_count = len(segs)
-
-        # 3) 末尾追加当前草稿(每路至多一条,浅色)
-        for u in self.recorder.drafts():
+        for u in drafts:
             w = _bubble_widget(u.speaker, MeetingRecorder.fmt_ts(u.t), u.text, u.is_me, draft=True)
             item = QListWidgetItem(lst)
             item.setSizeHint(w.sizeHint())
@@ -376,7 +403,13 @@ class MeetingWindow(QWidget):
             lst.setItemWidget(item, w)
             self._draft_items += 1
 
-        lst.scrollToBottom()
+        if near_bottom:
+            lst.scrollToBottom()
+
+    def _near_bottom(self) -> bool:
+        """用户是否已滚到接近底部(是则新内容自动跟随滚动,否则不打扰其向上翻看)。"""
+        bar = self.transcript_list.verticalScrollBar()
+        return bar.value() >= bar.maximum() - 40
 
     # ---- 会后说话人分离(声纹)----
 

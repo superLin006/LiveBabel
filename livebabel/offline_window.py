@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from livebabel.gui_common import apply_theme, SUBTEXT
+from livebabel.gui_common import apply_theme, card, section_label, SUBTEXT, WIN_W, WIN_H
 
 # 目标语种(下拉)和对应传给翻译器的中文名
 TARGET_LANGS = ["中文", "英语", "日语", "韩语"]
@@ -204,7 +204,7 @@ class OfflineWindow(QWidget):
         self._queue_results: list = []  # 每个文件的结果摘要
 
         self.setWindowTitle("LiveBabel · 离线字幕")
-        self.resize(620, 640)
+        self.resize(WIN_W, WIN_H)
         from livebabel.gui_common import app_icon
         self.setWindowIcon(app_icon())
         apply_theme(self)
@@ -221,42 +221,81 @@ class OfflineWindow(QWidget):
     # ---- UI ----
 
     def _build(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 24)
-        root.setSpacing(14)
+        from PySide6.QtWidgets import QScrollArea, QFrame
 
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # 顶部标题区(固定在滚动区之外)
+        header = QWidget()
+        hb = QVBoxLayout(header)
+        hb.setContentsMargins(32, 26, 32, 8)
+        hb.setSpacing(4)
         title = QLabel("离线字幕生成")
         title.setObjectName("title")
         sub = QLabel("把视频转成双语字幕(SRT / ASS),可选直接烧录进视频")
         sub.setObjectName("subtitle")
-        root.addWidget(title)
-        root.addWidget(sub)
-        root.addSpacing(6)
+        hb.addWidget(title)
+        hb.addWidget(sub)
+        outer.addWidget(header)
 
-        # 文件选择(支持多文件排队批量处理)
-        root.addWidget(self._section("视频文件(可多选,排队批量处理)"))
+        # 中部:可滚动的卡片区(留白足、左对齐)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea{background:transparent;}"
+                             "QScrollArea>QWidget>QWidget{background:transparent;}")
+        body = QWidget()
+        root = QVBoxLayout(body)
+        root.setContentsMargins(32, 12, 32, 12)
+        root.setSpacing(16)
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
+
+        # —— 卡片 1:视频文件 ——
+        files_card, fc = card()
+        head = QHBoxLayout()
+        self.files_title = section_label("视频文件 · 可多选排队批量")
+        head.addWidget(self.files_title)
+        head.addStretch(1)
+        add_btn = QPushButton("+ 添加文件")
+        add_btn.clicked.connect(self._pick_file)
+        head.addWidget(add_btn)
+        fc.addLayout(head)
+
         self.file_list = QListWidget()
         self.file_list.setSelectionMode(QListWidget.ExtendedSelection)
-        self.file_list.setMaximumHeight(110)
-        root.addWidget(self.file_list)
+        # 紧凑行高:文件名是单行短文本,不需要全局那 7px item padding
+        self.file_list.setStyleSheet(
+            "QListWidget::item{padding:4px 8px;}"
+        )
+        self.file_list.setUniformItemSizes(True)
+        # 空态占位提示;有文件时高度随条数自适应(见 _sync_file_list_height)
+        self._ROW_H = 28
+        self._MAX_ROWS = 5
+        self.file_list.setMaximumHeight(self._ROW_H * self._MAX_ROWS + 8)
+        fc.addWidget(self.file_list)
+
         file_btns = QHBoxLayout()
-        add_btn = QPushButton("添加文件…")
-        add_btn.clicked.connect(self._pick_file)
+        file_btns.setSpacing(8)
         rm_btn = QPushButton("移除选中")
         rm_btn.clicked.connect(self._remove_selected)
         clr_btn = QPushButton("清空")
         clr_btn.clicked.connect(self._clear_files)
-        file_btns.addWidget(add_btn)
         file_btns.addWidget(rm_btn)
         file_btns.addWidget(clr_btn)
         file_btns.addStretch(1)
-        root.addLayout(file_btns)
+        fc.addLayout(file_btns)
+        root.addWidget(files_card)
+        self._sync_file_list()   # 初始空态
 
-        # 语言选项网格
-        root.addWidget(self._section("语言"))
+        # —— 卡片 2:语言与设备 ——
+        lang_card, lc = card()
+        lc.addWidget(section_label("语言"))
         grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(8)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
         grid.addWidget(QLabel("源语言"), 0, 0)
         self.source_combo = QComboBox()
         self.source_combo.addItems(SOURCE_LANGS.keys())
@@ -267,48 +306,55 @@ class OfflineWindow(QWidget):
         grid.addWidget(self.target_combo, 0, 3)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
-        root.addLayout(grid)
+        lc.addLayout(grid)
+        self.cb_translate = QCheckBox("翻译(关闭则只生成原文字幕)")
+        self.cb_translate.setChecked(True)
+        lc.addWidget(self.cb_translate)
 
-        # 设备 / 精度(自动探测:有 GPU 默认走 GPU)
-        root.addWidget(self._section("识别设备"))
+        lc.addSpacing(2)
+        lc.addWidget(section_label("识别设备"))
         dev_row = QHBoxLayout()
+        dev_row.setSpacing(10)
         self.device_combo = QComboBox()
         self.device_combo.addItems(["CPU(通用,慢)", "GPU / CUDA(有 N 卡更快)"])
         from livebabel.offline.transcribe import detect_device
         dev, _ = detect_device()
         self._gpu_available = dev == "cuda"
-        # 默认选中探测到的设备
         self.device_combo.setCurrentIndex(1 if self._gpu_available else 0)
         dev_row.addWidget(self.device_combo, 1)
         hint = QLabel("✓ 已检测到 GPU,默认加速" if self._gpu_available
                       else "未检测到 GPU,使用 CPU")
         hint.setObjectName("subtitle")
         dev_row.addWidget(hint)
-        root.addLayout(dev_row)
+        lc.addLayout(dev_row)
+        root.addWidget(lang_card)
 
-        # 选项开关
-        self.cb_translate = QCheckBox("翻译(关闭则只生成原文字幕)")
-        self.cb_translate.setChecked(True)
-        root.addWidget(self.cb_translate)
-
-        # 字幕输出方式
-        root.addWidget(self._section("字幕输出"))
-        sub_row = QHBoxLayout()
+        # —— 卡片 3:字幕输出 ——
+        out_card, oc = card()
+        oc.addWidget(section_label("字幕输出"))
         self.sub_combo = QComboBox()
         self.sub_combo.addItems([
             "仅字幕文件(SRT/ASS,最快)",
             "软字幕(封装进视频,可开关,秒级)",
             "硬烧录(焊进画面,任何平台都显示,较慢)",
         ])
-        sub_row.addWidget(self.sub_combo, 1)
-        root.addLayout(sub_row)
+        oc.addWidget(self.sub_combo)
         self.sub_hint = QLabel("软字幕快但部分平台上传后不显示;硬烧录通用但要重编码")
         self.sub_hint.setObjectName("subtitle")
         self.sub_hint.setWordWrap(True)
-        root.addWidget(self.sub_hint)
+        oc.addWidget(self.sub_hint)
+        root.addWidget(out_card)
 
-        # 开始 / 取消 按钮
+        root.addStretch(1)
+
+        # 底部:操作条 + 进度 + 日志(固定在滚动区之外)
+        footer = QWidget()
+        fb = QVBoxLayout(footer)
+        fb.setContentsMargins(32, 8, 32, 22)
+        fb.setSpacing(12)
+
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
         self.start_btn = QPushButton("开始生成")
         self.start_btn.setObjectName("primary")
         self.start_btn.clicked.connect(self._start)
@@ -317,29 +363,46 @@ class OfflineWindow(QWidget):
         self.cancel_btn.setEnabled(False)
         btn_row.addWidget(self.start_btn, 1)
         btn_row.addWidget(self.cancel_btn)
-        root.addLayout(btn_row)
+        fb.addLayout(btn_row)
 
-        # 进度 + 状态(进度条显示百分比文字)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setTextVisible(True)
         self.progress.setFormat("%p%")
+        fb.addWidget(self.progress)
+
+        # 一行当前状态 + 右侧"详情"折叠开关(详细日志默认收起,排查时再展开)
+        status_row = QHBoxLayout()
+        status_row.setSpacing(8)
         self.status = QLabel("就绪")
         self.status.setObjectName("subtitle")
-        self.status.setWordWrap(True)
-        root.addWidget(self.progress)
-        root.addWidget(self.status)
+        # 单行省略:状态只占一行,过长用 … 截断,不再换行撑高
+        self.status.setWordWrap(False)
+        self.status.setTextFormat(Qt.PlainText)
+        status_row.addWidget(self.status, 1)
+        self.detail_btn = QPushButton("详情 ▸")
+        self.detail_btn.setCheckable(True)
+        self.detail_btn.setStyleSheet(
+            "QPushButton{border:none;background:transparent;color:%s;padding:2px 4px;}"
+            "QPushButton:hover{color:%s;}" % (SUBTEXT, "#0A84FF")
+        )
+        self.detail_btn.toggled.connect(self._toggle_detail)
+        status_row.addWidget(self.detail_btn, 0)
+        fb.addLayout(status_row)
 
-        # 日志
+        # 详细日志:默认隐藏,点"详情"才展开(给排查/开发者看)
         self.logbox = QPlainTextEdit()
         self.logbox.setReadOnly(True)
-        root.addWidget(self.logbox, 1)
+        self.logbox.setMaximumHeight(140)
+        self.logbox.setVisible(False)
+        fb.addWidget(self.logbox)
 
-    def _section(self, text: str) -> QLabel:
-        lab = QLabel(text)
-        lab.setObjectName("section")
-        return lab
+        outer.addWidget(footer)
+
+    def _toggle_detail(self, on: bool) -> None:
+        self.detail_btn.setText("详情 ▾" if on else "详情 ▸")
+        self.logbox.setVisible(on)
 
     # ---- 交互 ----
 
@@ -354,17 +417,33 @@ class OfflineWindow(QWidget):
         for p in paths:
             if p in existing:
                 continue                     # 去重
-            it = QListWidgetItem(os.path.basename(p))
+            it = QListWidgetItem("🎬  " + os.path.basename(p))
             it.setData(Qt.UserRole, p)        # 全路径存 UserRole,显示只用文件名
             it.setToolTip(p)
             self.file_list.addItem(it)
+        self._sync_file_list()
 
     def _remove_selected(self) -> None:
         for it in self.file_list.selectedItems():
             self.file_list.takeItem(self.file_list.row(it))
+        self._sync_file_list()
 
     def _clear_files(self) -> None:
         self.file_list.clear()
+        self._sync_file_list()
+
+    def _sync_file_list(self) -> None:
+        """文件数变化时:更新标题计数 + 列表高度随条数自适应(消除多余留白)。"""
+        n = self.file_list.count()
+        if n:
+            self.files_title.setText(f"视频文件 · 已添加 {n} 个")
+        else:
+            self.files_title.setText("视频文件 · 还没有文件,点右上「添加文件…」")
+        # 高度随条数收缩:空/少时矮,多了到 _MAX_ROWS 行封顶后内部滚动
+        rows = max(1, min(n, self._MAX_ROWS))
+        h = self._ROW_H * rows + 8
+        self.file_list.setMinimumHeight(h)
+        self.file_list.setMaximumHeight(h)
 
     def _all_files(self) -> list:
         return [self.file_list.item(i).data(Qt.UserRole)
@@ -444,6 +523,7 @@ class OfflineWindow(QWidget):
             idx = self._queue_total - len(self._queue)   # 当前是第几个
             label = f"[{idx}/{self._queue_total}] {label}"
         self.status.setText(label)
+        self.status.setToolTip(label)   # 过长被截断时悬停看全
 
     def _on_done(self, ok: bool, msg: str) -> None:
         if ok:
@@ -476,6 +556,9 @@ class OfflineWindow(QWidget):
             self._log("\n======== 批量结果 ========")
             for r in self._queue_results:
                 self._log("  " + r)
+        # 有失败时自动展开详情,免得用户不知道哪出错
+        if ok_n < self._queue_total and not self.detail_btn.isChecked():
+            self.detail_btn.setChecked(True)
 
     def _set_running(self, running: bool) -> None:
         self.start_btn.setEnabled(not running)
