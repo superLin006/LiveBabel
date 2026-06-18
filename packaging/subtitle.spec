@@ -57,9 +57,11 @@ if not IS_CPU:
 
 # ---- 数据文件(两版一致)----
 # faster-whisper 自带 silero_vad_v6.onnx(transcribe 用 vad_filter=True 必需);
-# av/ctranslate2 也可能带数据文件。
+# av/ctranslate2 也可能带数据文件;
+# certifi 的 cacert.pem 必需 —— 首启用 requests 走 HTTPS 下载模型要校验证书,
+# 不收会报 SSL: CERTIFICATE_VERIFY_FAILED。
 datas = []
-for pkg in ("faster_whisper", "av", "ctranslate2"):
+for pkg in ("faster_whisper", "av", "ctranslate2", "certifi"):
     try:
         datas += collect_data_files(pkg)
     except Exception:
@@ -84,8 +86,8 @@ hiddenimports = (
     collect_submodules("sherpa_onnx")
     + collect_submodules("livebabel")
     + collect_submodules("ctranslate2")
-    + ["app", "soundfile", "numpy", "requests", "faster_whisper", "av",
-       "onnxruntime", "pyaudiowpatch"]
+    + ["app", "soundfile", "numpy", "requests", "certifi", "faster_whisper",
+       "av", "onnxruntime", "pyaudiowpatch"]
 )
 
 # CPU 版:启动即强制 CPU(避免在有 N 卡机器上尝试加载没打包的 GPU dll)
