@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from livebabel.gui_common import apply_theme, app_icon, enable_dark_titlebar, SUBTEXT
+from livebabel.gui_common import (
+    apply_theme, app_icon, enable_dark_titlebar, CARD, SUBTEXT,
+)
 from livebabel import model_setup
 
 
@@ -78,7 +80,7 @@ class ModelDownloadDialog(QDialog):
 
         title = QLabel("正在下载语音识别模型")
         title.setObjectName("section")
-        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title.setStyleSheet("font-size: 17px; font-weight: 600;")
         total_mb = sum(m.approx_mb for m in model_setup.missing_items())
         tip = QLabel(
             f"首次使用需下载约 {total_mb}MB 模型(仅此一次,之后开箱即用)。\n"
@@ -102,9 +104,9 @@ class ModelDownloadDialog(QDialog):
         self.console = QPlainTextEdit()
         self.console.setReadOnly(True)
         self.console.setMaximumBlockCount(500)
+        # 浅色控制台:用次要文字色,弱化存在感(全局 QSS 已给圆角/边框)
         self.console.setStyleSheet(
-            "QPlainTextEdit { background:#1E2026; border:1px solid #3A3D48;"
-            " border-radius:8px; font-family:Consolas,monospace; font-size:12px; }"
+            f"QPlainTextEdit {{ background: {CARD}; color: {SUBTEXT}; }}"
         )
         root.addWidget(self.console, 1)
 

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from livebabel.gui_common import (
     apply_theme, ACCENT, ACCENT_DEEP, BORDER, CARD, CARD_HOVER, SUBTEXT,
+    LAUNCHER_W, LAUNCHER_H,
 )
 from livebabel.overlay import load_settings, save_settings
 
@@ -43,14 +44,24 @@ class ModeCard(QFrame):
         self.setObjectName("card")
         self.setStyleSheet(self._qss())
 
+        # 苹果风卡片:柔和投影,营造"浮于浅灰背景之上"的层次感
+        from PySide6.QtWidgets import QGraphicsDropShadowEffect
+        from PySide6.QtGui import QColor
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setXOffset(0)
+        shadow.setYOffset(4)
+        shadow.setColor(QColor(0, 0, 0, 28))
+        self.setGraphicsEffect(shadow)
+
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(22, 22, 22, 22)
-        lay.setSpacing(8)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(10)
 
         icon = QLabel(emoji)
-        icon.setStyleSheet("font-size: 40px; background: transparent;")
+        icon.setStyleSheet("font-size: 42px; background: transparent;")
         t = QLabel(title)
-        t.setStyleSheet("font-size: 17px; font-weight: bold; background: transparent;")
+        t.setStyleSheet("font-size: 18px; font-weight: 600; background: transparent;")
         d = QLabel(desc)
         d.setWordWrap(True)
         d.setStyleSheet(f"color: {SUBTEXT}; font-size: 12px; background: transparent;")
@@ -71,12 +82,12 @@ class ModeCard(QFrame):
         if not self._enabled:
             return (
                 f"#card {{ background: {CARD}; border: 1px solid {BORDER};"
-                f" border-radius: 12px; }}"
+                f" border-radius: 14px; }}"
             )
         return (
             f"#card {{ background: {CARD}; border: 1px solid {BORDER};"
-            f" border-radius: 12px; }}"
-            f"#card:hover {{ background: {CARD_HOVER}; border: 1px solid {ACCENT_DEEP}; }}"
+            f" border-radius: 14px; }}"
+            f"#card:hover {{ background: {CARD}; border: 1.5px solid {ACCENT}; }}"
         )
 
     def mouseReleaseEvent(self, e) -> None:
@@ -94,7 +105,7 @@ class Launcher(QWidget):
         self._live_thread = None
 
         self.setWindowTitle("LiveBabel")
-        self.resize(560, 460)
+        self.resize(LAUNCHER_W, LAUNCHER_H)
         from livebabel.gui_common import app_icon
         self.setWindowIcon(app_icon())
         apply_theme(self)
@@ -110,7 +121,7 @@ class Launcher(QWidget):
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 28, 32, 24)
+        root.setContentsMargins(40, 36, 40, 28)
         root.setSpacing(6)
 
         title = QLabel("LiveBabel")
@@ -119,10 +130,10 @@ class Launcher(QWidget):
         sub.setObjectName("subtitle")
         root.addWidget(title)
         root.addWidget(sub)
-        root.addSpacing(18)
+        root.addSpacing(28)
 
         cards = QHBoxLayout()
-        cards.setSpacing(16)
+        cards.setSpacing(18)
         cards.addWidget(ModeCard(
             "🎧", "实时模式",
             "抓取电脑正在播放的声音,实时识别并翻译,以悬浮字幕显示。适合看直播 / 视频会议 / 在线课程。",
@@ -140,10 +151,13 @@ class Launcher(QWidget):
         ))
         root.addLayout(cards, 1)
 
-        root.addSpacing(16)
+        root.addSpacing(24)
 
-        # API Key 一行
+        # API Key 底部面板(包成卡片,作为页脚信息区)
+        from livebabel.gui_common import card
+        key_card, kc = card(padding=14)
         key_row = QHBoxLayout()
+        key_row.setSpacing(10)
         key_lab = QLabel("DeepSeek API Key")
         key_lab.setObjectName("section")
         self.key_status = QLabel()
@@ -156,7 +170,8 @@ class Launcher(QWidget):
         key_row.addWidget(self.key_status, 1)
         key_row.addWidget(hist_btn)
         key_row.addWidget(set_btn)
-        root.addLayout(key_row)
+        kc.addLayout(key_row)
+        root.addWidget(key_card)
         self._refresh_key_status()
 
     @staticmethod

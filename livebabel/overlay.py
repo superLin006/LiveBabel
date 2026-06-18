@@ -193,8 +193,10 @@ class SubtitleOverlay(QWidget):
                 tr = ln.translation if ln.translation is not None else "…"
                 self._labels.append(self._make_label(tr, tr_color, False, fp - 1))
             else:
+                # 实时(未定稿)行:改正体(原斜体看着累);末尾用一支笔 "✎" 表示
+                # 还在书写/识别中(原来的 "▎" 竖条在部分字体下被误看成斜杠,不好看)
                 self._labels.append(
-                    self._make_label(ln.source + " ▎", "#C8C8C8", True, fp)
+                    self._make_label(ln.source + " ✎", "#C8C8C8", False, fp)
                 )
         for lab in self._labels:
             self._layout.addWidget(lab)
