@@ -159,6 +159,12 @@ class Launcher(QWidget):
         root.addLayout(key_row)
         self._refresh_key_status()
 
+    @staticmethod
+    def _whisper_local() -> bool:
+        """本地是否已放了离线 whisper 模型目录(放了就不会触发联网下载)。"""
+        from livebabel.paths import WHISPER_DIR
+        return os.path.isdir(WHISPER_DIR) and bool(os.listdir(WHISPER_DIR))
+
     def _open_history(self) -> None:
         from livebabel.history_window import HistoryWindow
         HistoryWindow(self).exec()
@@ -204,6 +210,14 @@ class Launcher(QWidget):
     # ---- 模式 ----
 
     def _open_offline(self) -> None:
+        # 离线用 faster-whisper(large-v3-turbo)。本地没放模型时首次会自动联网下载
+        # (约 1.6GB,下到本机缓存,仅一次)。这里只做一次性友好提示,不阻断。
+        if self._offline_win is None and not self._whisper_local():
+            from livebabel.gui_common import info
+            info(self, "离线模式 · 首次需下载模型",
+                 "离线字幕使用 Whisper large-v3-turbo 模型。\n\n"
+                 "首次转写会自动联网下载约 1.6GB 模型(仅一次,之后无需联网),"
+                 "期间界面可能停顿,属正常现象,请耐心等待。")
         from livebabel.offline_window import OfflineWindow
         if self._offline_win is None:
             self._offline_win = OfflineWindow(api_key=self._effective_key())
@@ -335,6 +349,16 @@ def main() -> None:
     from livebabel.gui_common import apply_app_theme, app_icon
     apply_app_theme(app)            # 全局深色调色板,消除白边/白底弹窗
     app.setWindowIcon(app_icon())   # 任务栏/弹窗/所有窗口默认图标
+    # 首次使用:核心模型缺失则先弹下载窗(下完才进主页;取消则退出)
+    from livebabel.model_setup import models_ready
+    if not models_ready():
+        from livebabel.model_download_dialog import ModelDownloadDialog
+        dlg = ModelDownloadDialog()
+        dlg.exec()
+        if not dlg.models_ready():
+            # 用户取消 / 下载未完成:没有模型无法运行,直接退出
+            sys.exit(0)
+
     win = Launcher()
     win.show()
     sys.exit(app.exec())
