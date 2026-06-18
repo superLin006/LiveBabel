@@ -370,18 +370,39 @@ class OfflineWindow(QWidget):
         self.progress.setValue(0)
         self.progress.setTextVisible(True)
         self.progress.setFormat("%p%")
+        fb.addWidget(self.progress)
+
+        # 一行当前状态 + 右侧"详情"折叠开关(详细日志默认收起,排查时再展开)
+        status_row = QHBoxLayout()
+        status_row.setSpacing(8)
         self.status = QLabel("就绪")
         self.status.setObjectName("subtitle")
-        self.status.setWordWrap(True)
-        fb.addWidget(self.progress)
-        fb.addWidget(self.status)
+        # 单行省略:状态只占一行,过长用 … 截断,不再换行撑高
+        self.status.setWordWrap(False)
+        self.status.setTextFormat(Qt.PlainText)
+        status_row.addWidget(self.status, 1)
+        self.detail_btn = QPushButton("详情 ▸")
+        self.detail_btn.setCheckable(True)
+        self.detail_btn.setStyleSheet(
+            "QPushButton{border:none;background:transparent;color:%s;padding:2px 4px;}"
+            "QPushButton:hover{color:%s;}" % (SUBTEXT, "#0A84FF")
+        )
+        self.detail_btn.toggled.connect(self._toggle_detail)
+        status_row.addWidget(self.detail_btn, 0)
+        fb.addLayout(status_row)
 
+        # 详细日志:默认隐藏,点"详情"才展开(给排查/开发者看)
         self.logbox = QPlainTextEdit()
         self.logbox.setReadOnly(True)
-        self.logbox.setMaximumHeight(120)
+        self.logbox.setMaximumHeight(140)
+        self.logbox.setVisible(False)
         fb.addWidget(self.logbox)
 
         outer.addWidget(footer)
+
+    def _toggle_detail(self, on: bool) -> None:
+        self.detail_btn.setText("详情 ▾" if on else "详情 ▸")
+        self.logbox.setVisible(on)
 
     # ---- 交互 ----
 
@@ -502,6 +523,7 @@ class OfflineWindow(QWidget):
             idx = self._queue_total - len(self._queue)   # 当前是第几个
             label = f"[{idx}/{self._queue_total}] {label}"
         self.status.setText(label)
+        self.status.setToolTip(label)   # 过长被截断时悬停看全
 
     def _on_done(self, ok: bool, msg: str) -> None:
         if ok:
@@ -534,6 +556,9 @@ class OfflineWindow(QWidget):
             self._log("\n======== 批量结果 ========")
             for r in self._queue_results:
                 self._log("  " + r)
+        # 有失败时自动展开详情,免得用户不知道哪出错
+        if ok_n < self._queue_total and not self.detail_btn.isChecked():
+            self.detail_btn.setChecked(True)
 
     def _set_running(self, running: bool) -> None:
         self.start_btn.setEnabled(not running)
