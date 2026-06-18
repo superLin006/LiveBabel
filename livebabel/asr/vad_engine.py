@@ -156,10 +156,21 @@ class VadTwoPassAsr:
                 pass
 
         if shared_first is not None and shared_second is not None:
-            # 复用共享模型:只建本实例独立的 vad + stream(轻量)
+            # 复用共享模型:只建本实例独立的 vad + stream(轻量)。
+            # VAD 仍可能用 cuda provider,若 CUDA dll 加载失败需回退 CPU 重建,
+            # 否则会抛 OrtSessionOptionsAppendExecutionProvider_Cuda(共享路径曾漏此回退)。
             self.first = shared_first
             self.second = shared_second
-            self.vad = self._build_vad(num_threads)
+            try:
+                self.vad = self._build_vad(num_threads)
+            except Exception as e:
+                if self.provider == "cuda":
+                    print(f"[asr] 共享引擎 VAD GPU 初始化失败({type(e).__name__}: {e}),回退 CPU",
+                          file=_sys.stderr)
+                    self.provider = "cpu"
+                    self.vad = self._build_vad(num_threads)
+                else:
+                    raise
             self.stream = self.first.create_stream()
         else:
             # 构建三个模型。GPU 构建若失败(如缺 cuDNN、provider 加载失败),
