@@ -35,7 +35,9 @@ from PySide6.QtWidgets import (
 
 from livebabel.paths import SETTINGS_PATH
 
-LANGS = ["英语", "中文", "日语", "韩语"]
+# "不翻译" 放第一项:只显示识别原文,不调用翻译(用户只想看原文 / 省 API)
+NO_TRANSLATE = "不翻译"
+LANGS = [NO_TRANSLATE, "英语", "中文", "日语", "韩语"]
 
 DEFAULTS = {
     "font_pt": 18,
@@ -181,7 +183,9 @@ class SubtitleOverlay(QWidget):
         self._last_lines = lines
         self._clear()
         fp = self.s["font_pt"]
-        show_src = self.s["show_source"]
+        translate = self.translate_enabled()
+        # 不翻译模式:没有译文行,原文是唯一内容,强制显示原文
+        show_src = self.s["show_source"] or not translate
         for ln in lines:
             if ln.committed:
                 # 临时行:原文白色,译文用醒目的琥珀色(清晰可读,又能和最终的青色区分)
@@ -190,8 +194,9 @@ class SubtitleOverlay(QWidget):
                 tr_color = "#FFD24A" if ln.provisional else "#7FE7FF"
                 if show_src:
                     self._labels.append(self._make_label(ln.source, src_color, False, fp))
-                tr = ln.translation if ln.translation is not None else "…"
-                self._labels.append(self._make_label(tr, tr_color, False, fp - 1))
+                if translate:
+                    tr = ln.translation if ln.translation is not None else "…"
+                    self._labels.append(self._make_label(tr, tr_color, False, fp - 1))
             else:
                 # 实时(未定稿)行:改正体(原斜体看着累);末尾用一支笔 "✎" 表示
                 # 还在书写/识别中(原来的 "▎" 竖条在部分字体下被误看成斜杠,不好看)
@@ -356,6 +361,10 @@ class SubtitleOverlay(QWidget):
     @property
     def max_lines(self) -> int:
         return self.s["max_lines"]
+
+    def translate_enabled(self) -> bool:
+        """当前是否需要翻译(选了「不翻译」则只显示原文)。"""
+        return self.s.get("lang") != NO_TRANSLATE
 
     # ---- 拖动 / 缩放 / 几何持久化 ----
 

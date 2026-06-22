@@ -28,33 +28,58 @@ _cached_provider = None
 def detect_provider() -> str:
     """探测 sherpa-onnx 能否真正用 CUDA,可以则 "cuda",否则 "cpu"。
 
-    关键:不能靠 `import onnxruntime`(那是 faster-whisper 的 pip 包,sherpa 用的是
-    自带 lib 里的另一份 onnxruntime)。两份混用会导致 cuda provider 初始化失败
-    (Error 1114)。所以直接看 sherpa_onnx 是否报告 cuda 可用 / 是否带 cuda provider。
-    结果缓存。任何异常安全回退 cpu。
+    关键:不能只看 onnxruntime_providers_cuda.dll 文件【存在】就选 cuda!
+    某些笔记本(如 Optimus 双显卡 / 驱动不全)上 dll 在但没有可用 CUDA 设备,
+    sherpa-onnx 初始化 CUDA provider 会在 onnxruntime C++ 层【硬崩溃整个进程】
+    (Python try/except 拦不住),表现为实时模式一点就闪退、悬浮窗不显示。
+
+    所以这里要像离线 detect_device 那样【真正确认有可用 GPU】才返回 cuda:
+      1) dll 存在(没打包 GPU 库的 CPU 版直接 cpu);
+      2) 确有 CUDA 设备(ctranslate2.get_cuda_device_count()>0);
+      3) Windows 上 cuBLAS/cuDNN 运行时能加载(否则有卡也跑不起来)。
+    任一不满足都回退 cpu。结果缓存,任何异常安全回退 cpu。
     """
     global _cached_provider
     if _cached_provider is not None:
         return _cached_provider
-    # 纯 CPU 版打包用此开关强制 CPU,避免在有 GPU 机器上尝试加载没打包的 GPU dll
     import os as _os
+    # 纯 CPU 版打包用此开关强制 CPU,避免在有 GPU 机器上尝试加载没打包的 GPU dll
     if _os.environ.get("LIVEBABEL_CPU_ONLY", "").strip() in ("1", "true", "True"):
         _cached_provider = "cpu"
         return "cpu"
     provider = "cpu"
     try:
-        # GPU 版 sherpa-onnx 的 lib 目录里会有 onnxruntime_providers_cuda.dll
-        import os as _os
+        # 1) GPU 版 sherpa-onnx 的 lib 目录里才有 onnxruntime_providers_cuda.dll
         import sherpa_onnx as _so
         libdir = _os.path.join(_os.path.dirname(_so.__file__), "lib")
         has_cuda_dll = _os.path.isfile(_os.path.join(libdir, "onnxruntime_providers_cuda.dll")) \
             or _os.path.isfile(_os.path.join(libdir, "libonnxruntime_providers_cuda.so"))
-        if has_cuda_dll:
+        if has_cuda_dll and _cuda_usable():
             provider = "cuda"
     except Exception:
         pass
     _cached_provider = provider
     return provider
+
+
+def _cuda_usable() -> bool:
+    """是否真的有【可用】的 CUDA 设备(避免在没卡的机器上初始化 CUDA 而硬崩溃)。
+
+    复用离线那套判断:CTranslate2 自报 CUDA 设备数 > 0,且 Windows 上 cuBLAS/cuDNN
+    运行时 DLL 能加载。任何异常都当作不可用(回退 CPU)。
+    """
+    import sys as _sys
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() <= 0:
+            return False
+        if _sys.platform.startswith("win"):
+            # 确保 cuBLAS/cuDNN 能被找到/加载,否则虽有卡也会 Error 1114
+            from livebabel.offline.cuda_dll import ensure_cuda_dlls
+            ensure_cuda_dlls()
+        return True
+    except Exception:
+        return False
 
 
 _PUNCT = re.compile(r"[\s\.,!?;:、。，！？；：…·\-\"'()\[\]<>]+")
