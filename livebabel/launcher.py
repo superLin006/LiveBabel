@@ -296,6 +296,7 @@ def _start_live_overlay(api_key: str):
         target_lang=overlay.s["lang"],
         api_key=api_key,
     )
+    translator.enabled = overlay.translate_enabled()   # 「不翻译」则不发翻译请求
     overlay.api_key_changed.connect(
         lambda k: setattr(translator, "api_key",
                           (k or os.environ.get("DEEPSEEK_API_KEY", "")).strip())
@@ -326,6 +327,10 @@ def _start_live_overlay(api_key: str):
 
     def on_lang_changed(lang: str) -> None:
         translator.target_lang = lang
+        translator.enabled = overlay.translate_enabled()
+        if not translator.enabled:
+            push_to_overlay()        # 切到「不翻译」:立刻重绘成只显示原文
+            return
         for seg in manager.committed[-overlay.max_lines:]:
             translator.submit(seg.id, seg.text, quick=True)
     overlay.lang_changed.connect(on_lang_changed)
