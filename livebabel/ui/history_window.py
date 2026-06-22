@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QTextEdit, QPushButton, QLabel, QSplitter, QWidget,
 )
 
-from livebabel.gui_common import apply_theme, enable_dark_titlebar, confirm, info
+from livebabel.ui.gui_common import apply_theme, enable_dark_titlebar, confirm, info
 
 
 def _history_dir() -> str:

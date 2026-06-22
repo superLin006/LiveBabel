@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from livebabel.gui_common import apply_theme, card, section_label, SUBTEXT, WIN_W, WIN_H
+from livebabel.ui.gui_common import apply_theme, card, section_label, SUBTEXT, WIN_W, WIN_H
 
 # 目标语种(下拉)和对应传给翻译器的中文名
 TARGET_LANGS = ["中文", "英语", "日语", "韩语"]
@@ -109,6 +109,16 @@ class _Worker(QThread):
                      f"已用 {_fmt(el)} · 约剩 {_fmt(eta)})")
 
         def _do_transcribe(device, compute_type):
+            # GPU 路径走子进程:转录结束后操作系统彻底回收 CUDA,避免占着 GPU
+            # 导致之后实时/会议的 sherpa-onnx 初始化 CUDA 失败(Error 1114)被迫回 CPU。
+            # CPU 路径无此冲突,直接进程内跑(更快、无子进程开销)。
+            if device == "cuda":
+                from livebabel.offline.transcribe import transcribe_subprocess
+                return transcribe_subprocess(
+                    video, model_size=self.o["model"], language=self.o["source_lang"],
+                    device=device, compute_type=compute_type, on_progress=on_t,
+                    should_cancel=lambda: self._cancel,
+                )
             return transcribe(
                 video, model_size=self.o["model"], language=self.o["source_lang"],
                 device=device, compute_type=compute_type, on_progress=on_t,
@@ -205,7 +215,7 @@ class OfflineWindow(QWidget):
 
         self.setWindowTitle("LiveBabel · 离线字幕")
         self.resize(WIN_W, WIN_H)
-        from livebabel.gui_common import app_icon
+        from livebabel.ui.gui_common import app_icon
         self.setWindowIcon(app_icon())
         apply_theme(self)
         self._dark_titlebar_done = False
@@ -215,7 +225,7 @@ class OfflineWindow(QWidget):
         super().showEvent(e)
         if not self._dark_titlebar_done:
             self._dark_titlebar_done = True
-            from livebabel.gui_common import enable_dark_titlebar
+            from livebabel.ui.gui_common import enable_dark_titlebar
             enable_dark_titlebar(self)
 
     # ---- UI ----
@@ -463,7 +473,7 @@ class OfflineWindow(QWidget):
         translate = self.cb_translate.isChecked()
         if translate and not (self._api_key or "").strip():
             # 要翻译却没 key:提示,但允许只出原文(避免每句都 [未设置 KEY])
-            from livebabel.gui_common import confirm
+            from livebabel.ui.gui_common import confirm
             if not confirm(self, "未设置 API Key",
                            "已勾选翻译,但还没设置 DeepSeek API Key。\n"
                            "选「是」只生成原文字幕;选「否」我去主页设置 Key。"):
@@ -586,7 +596,7 @@ class OfflineWindow(QWidget):
 
     def closeEvent(self, e) -> None:
         if self._worker and self._worker.isRunning():
-            from livebabel.gui_common import confirm
+            from livebabel.ui.gui_common import confirm
             if not confirm(self, "仍在处理",
                            "字幕生成尚未完成,确定要关闭吗?(将尝试取消)"):
                 e.ignore()
