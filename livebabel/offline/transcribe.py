@@ -144,3 +144,86 @@ def transcribe(
             os.remove(audio)
         except OSError:
             pass
+
+
+# ---------- GPU 隔离:在子进程里转录 ----------
+# 为什么:faster-whisper(CTranslate2)在 GPU 上加载后,同进程内不会彻底归还 CUDA
+# 上下文/显存(del+gc 实测不够),导致之后实时/会议的 sherpa-onnx 初始化 CUDA 失败
+# (Error 1114)被迫回退 CPU。把转录放独立子进程,进程退出时操作系统强制回收其全部
+# CUDA 资源,主进程后续再开 GPU 就干净了。仅 GPU 路径需要;CPU 路径无此问题。
+
+def _subprocess_worker(q, kwargs: dict) -> None:
+    """子进程入口(必须是模块顶层函数,spawn 模式才能 pickle)。
+
+    跑 transcribe(),通过队列回传进度与结果;异常也回传。进程结束即释放 GPU。
+    """
+    try:
+        def _prog(done, total):
+            try:
+                q.put(("progress", float(done), float(total)))
+            except Exception:
+                pass
+        sents = transcribe(on_progress=_prog, **kwargs)
+        # Sentence 是 dataclass,可 pickle 跨进程传回
+        q.put(("ok", sents))
+    except BaseException as e:   # 子进程任何失败都回传,避免父进程空等
+        q.put(("err", f"{type(e).__name__}: {e}"))
+
+
+def transcribe_subprocess(
+    video_path: str,
+    model_size: str = "large-v3-turbo",
+    language: Optional[str] = None,
+    device: str = "cpu",
+    compute_type: str = "int8",
+    on_progress=None,
+    should_cancel=None,
+) -> List[Sentence]:
+    """在【独立子进程】里转录,结束后 GPU 被操作系统彻底回收。
+
+    接口与 transcribe() 基本一致,额外 should_cancel():返回 True 则终止子进程并抛
+    RuntimeError("cancelled")。进度通过 on_progress(done, total) 回调(父进程线程内)。
+    """
+    import multiprocessing as mp
+    import time
+
+    ctx = mp.get_context("spawn")   # Windows 必然 spawn;显式指定保证跨平台一致
+    q = ctx.Queue()
+    kwargs = dict(video_path=video_path, model_size=model_size, language=language,
+                  device=device, compute_type=compute_type)
+    proc = ctx.Process(target=_subprocess_worker, args=(q, kwargs), daemon=True)
+    proc.start()
+
+    result: List[Sentence] = []
+    err: Optional[str] = None
+    try:
+        while True:
+            if should_cancel is not None and should_cancel():
+                proc.terminate()
+                raise RuntimeError("cancelled")
+            try:
+                kind, *payload = q.get(timeout=0.2)
+            except Exception:
+                # 队列暂时空:检查子进程是否已意外退出(崩溃且没回传)
+                if not proc.is_alive() and q.empty():
+                    err = "转录子进程异常退出(可能 GPU 驱动崩溃)"
+                    break
+                continue
+            if kind == "progress":
+                if on_progress:
+                    on_progress(payload[0], payload[1])
+            elif kind == "ok":
+                result = payload[0]
+                break
+            elif kind == "err":
+                err = payload[0]
+                break
+    finally:
+        proc.join(timeout=10)
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5)
+
+    if err is not None:
+        raise RuntimeError(err)
+    return result

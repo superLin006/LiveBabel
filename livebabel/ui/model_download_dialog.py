@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from livebabel.gui_common import (
+from livebabel.ui.gui_common import (
     apply_theme, app_icon, enable_dark_titlebar, CARD, SUBTEXT,
 )
 from livebabel import model_setup

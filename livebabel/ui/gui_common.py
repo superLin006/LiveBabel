@@ -19,8 +19,11 @@ ACCENT_DEEP = "#0060DF"   # 系统蓝按下态(更深)
 DANGER = "#FF3B30"        # 系统红(危险操作)
 ON_ACCENT = "#FFFFFF"     # 强调色上的文字(白)
 
-# 苹果界面优先用系统中文黑体;无则回退微软雅黑
-FONT = "PingFang SC, Microsoft YaHei, -apple-system, Segoe UI"
+# 苹果界面优先用系统中文黑体;无则回退微软雅黑。
+# QSS font-family 需要每个字体名【各自加引号】、逗号分隔;
+# 不能整串包一对引号(那样 Qt 当成一个不存在的字体名,解析失败会触发
+# "QFont::setPointSize: Point size <= 0" 警告)。
+FONT = '"PingFang SC", "Microsoft YaHei", "Segoe UI"'
 
 # ---- 统一窗口尺寸(苹果风:同一应用内功能窗口尺寸一致,观感规整)----
 # 功能窗口(离线 / 会议)共用同一基准;首页是入口、内容少,单独略小。
@@ -32,7 +35,7 @@ LAUNCHER_W, LAUNCHER_H = 720, 520   # 首页:同宽,稍矮
 # 主按钮纯色蓝、文字层级靠字号+字重拉开。
 STYLESHEET = f"""
 * {{
-    font-family: "{FONT}";
+    font-family: {FONT};
     color: {TEXT};
 }}
 QWidget#root {{
@@ -150,7 +153,7 @@ QPlainTextEdit, QTextEdit {{
     background: {CARD};
     border: 1px solid {BORDER};
     border-radius: 10px;
-    font-family: "SF Mono", "Consolas", "{FONT}";
+    font-family: "SF Mono", "Consolas", {FONT};
     font-size: 12px;
     selection-background-color: {ACCENT};
     selection-color: {ON_ACCENT};

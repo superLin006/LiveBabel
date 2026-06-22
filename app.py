@@ -17,8 +17,8 @@ import os
 import sys
 import threading
 
-from livebabel.commit_manager import CommitManager
-from livebabel.translator import Translator
+from livebabel.core.commit_manager import CommitManager
+from livebabel.core.translator import Translator
 from livebabel.asr.vad_engine import VadTwoPassAsr
 from livebabel.paths import FIRST_DIR, SECOND_DIR
 
@@ -78,7 +78,7 @@ def main() -> None:
     args = p.parse_args()
 
     from PySide6.QtWidgets import QApplication
-    from livebabel.overlay import SubtitleOverlay, SubtitleLine
+    from livebabel.ui.overlay import SubtitleOverlay, SubtitleLine
     from livebabel.history_writer import HistoryWriter
 
     app = QApplication(sys.argv)
@@ -136,7 +136,7 @@ def main() -> None:
     overlay.lang_changed.connect(on_lang_changed)
 
     # 「总结」按钮:取本场转录 → DeepSeek 摘要 → 弹窗展示
-    from livebabel.summary_window import wire_summarize
+    from livebabel.ui.summary_window import wire_summarize
     wire_summarize(
         overlay, manager,
         lambda: (overlay.s.get("api_key", "") or os.environ.get("DEEPSEEK_API_KEY", "")).strip(),

@@ -26,11 +26,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from livebabel.gui_common import (
+from livebabel.ui.gui_common import (
     apply_theme, ACCENT, ACCENT_DEEP, BORDER, CARD, CARD_HOVER, SUBTEXT,
     LAUNCHER_W, LAUNCHER_H,
 )
-from livebabel.overlay import load_settings, save_settings
+from livebabel.ui.overlay import load_settings, save_settings
 
 
 class ModeCard(QFrame):
@@ -106,7 +106,7 @@ class Launcher(QWidget):
 
         self.setWindowTitle("LiveBabel")
         self.resize(LAUNCHER_W, LAUNCHER_H)
-        from livebabel.gui_common import app_icon
+        from livebabel.ui.gui_common import app_icon
         self.setWindowIcon(app_icon())
         apply_theme(self)
         self._dark_titlebar_done = False
@@ -116,7 +116,7 @@ class Launcher(QWidget):
         super().showEvent(e)
         if not self._dark_titlebar_done:
             self._dark_titlebar_done = True
-            from livebabel.gui_common import enable_dark_titlebar
+            from livebabel.ui.gui_common import enable_dark_titlebar
             enable_dark_titlebar(self)
 
     def _build(self) -> None:
@@ -156,7 +156,7 @@ class Launcher(QWidget):
         root.addSpacing(24)
 
         # API Key 底部面板(包成卡片,作为页脚信息区)
-        from livebabel.gui_common import card
+        from livebabel.ui.gui_common import card
         key_card, kc = card(padding=14)
         key_row = QHBoxLayout()
         key_row.setSpacing(10)
@@ -183,7 +183,7 @@ class Launcher(QWidget):
         return os.path.isdir(WHISPER_DIR) and bool(os.listdir(WHISPER_DIR))
 
     def _open_history(self) -> None:
-        from livebabel.history_window import HistoryWindow
+        from livebabel.ui.history_window import HistoryWindow
         HistoryWindow(self).exec()
 
     # ---- API Key ----
@@ -230,12 +230,12 @@ class Launcher(QWidget):
         # 离线用 faster-whisper(large-v3-turbo)。本地没放模型时首次会自动联网下载
         # (约 1.6GB,下到本机缓存,仅一次)。这里只做一次性友好提示,不阻断。
         if self._offline_win is None and not self._whisper_local():
-            from livebabel.gui_common import info
+            from livebabel.ui.gui_common import info
             info(self, "离线模式 · 首次需下载模型",
                  "离线字幕使用 Whisper large-v3-turbo 模型。\n\n"
                  "首次转写会自动联网下载约 1.6GB 模型(仅一次,之后无需联网),"
                  "期间界面可能停顿,属正常现象,请耐心等待。")
-        from livebabel.offline_window import OfflineWindow
+        from livebabel.ui.offline_window import OfflineWindow
         if self._offline_win is None:
             self._offline_win = OfflineWindow(api_key=self._effective_key())
             self._offline_win.set_api_key(self._effective_key())
@@ -244,7 +244,7 @@ class Launcher(QWidget):
         self._offline_win.activateWindow()
 
     def _open_meeting(self) -> None:
-        from livebabel.meeting_window import MeetingWindow
+        from livebabel.ui.meeting_window import MeetingWindow
         if self._meeting_win is None:
             self._meeting_win = MeetingWindow(api_key=self._effective_key())
         self._meeting_win.set_api_key(self._effective_key())
@@ -256,7 +256,7 @@ class Launcher(QWidget):
         """启动实时悬浮窗。复用 app.py 的流水线;悬浮窗为独立顶层窗,与本启动器共存。"""
         if self._live_thread is not None:
             # 已经起过:提示用户悬浮窗就在桌面上(可能被其他窗口盖住)
-            from livebabel.gui_common import info
+            from livebabel.ui.gui_common import info
             info(self, "实时模式已在运行",
                  "实时悬浮字幕已经启动,请在桌面上查看(默认在屏幕下方)。")
             return
@@ -266,7 +266,7 @@ class Launcher(QWidget):
             # 悬浮窗退出后允许再次启动实时模式
             overlay.closed.connect(self._on_live_closed)
         except Exception as e:
-            from livebabel.gui_common import error
+            from livebabel.ui.gui_common import error
             error(self, "启动失败",
                   f"实时模式启动失败:\n{type(e).__name__}: {e}\n\n"
                   "请确认已安装系统音频采集依赖(pyaudiowpatch),且模型文件已下载。")
@@ -283,9 +283,9 @@ def _start_live_overlay(api_key: str):
     """
     from types import SimpleNamespace
 
-    from livebabel.commit_manager import CommitManager
-    from livebabel.translator import Translator
-    from livebabel.overlay import SubtitleOverlay, SubtitleLine
+    from livebabel.core.commit_manager import CommitManager
+    from livebabel.core.translator import Translator
+    from livebabel.ui.overlay import SubtitleOverlay, SubtitleLine
     from livebabel.history_writer import HistoryWriter
     import app as live_app   # 复用 pipeline_thread
 
@@ -338,7 +338,7 @@ def _start_live_overlay(api_key: str):
     overlay.lang_changed.connect(on_lang_changed)
 
     # 「总结」按钮:取本场转录 → DeepSeek 摘要 → 弹窗展示
-    from livebabel.summary_window import wire_summarize
+    from livebabel.ui.summary_window import wire_summarize
     wire_summarize(
         overlay, manager,
         lambda: (overlay.s.get("api_key", "") or os.environ.get("DEEPSEEK_API_KEY", "")).strip(),
@@ -368,13 +368,13 @@ def _start_live_overlay(api_key: str):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("LiveBabel")
-    from livebabel.gui_common import apply_app_theme, app_icon
+    from livebabel.ui.gui_common import apply_app_theme, app_icon
     apply_app_theme(app)            # 全局深色调色板,消除白边/白底弹窗
     app.setWindowIcon(app_icon())   # 任务栏/弹窗/所有窗口默认图标
     # 首次使用:核心模型缺失则先弹下载窗(下完才进主页;取消则退出)
     from livebabel.model_setup import models_ready
     if not models_ready():
-        from livebabel.model_download_dialog import ModelDownloadDialog
+        from livebabel.ui.model_download_dialog import ModelDownloadDialog
         dlg = ModelDownloadDialog()
         dlg.exec()
         if not dlg.models_ready():
