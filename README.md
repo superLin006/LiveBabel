@@ -7,7 +7,7 @@
 
 > Live(实时)+ Babel(巴别塔)。看外语视频/直播边播边出双语字幕;开会自动记录谁说了什么。
 
-![主页](docs/launcher_preview.png)
+<p align="center"><img src="docs/launcher_preview.png" alt="主页" width="640"></p>
 
 ## 三种模式
 
@@ -17,7 +17,7 @@
 | 🎬 **离线字幕** | 视频文件 → 双语 SRT/ASS,可烧录进视频,支持**多文件批量排队** | 给录播/影片配字幕 |
 | 📝 **会议纪要** | 双流录制(我/远端)→ 实时转录 → **声纹区分说话人** → 一键生成结构化纪要 | 线上/线下会议记录 |
 
-![效果图](docs/screenshot.png)
+<p align="center"><img src="docs/screenshot.png" alt="实时双语字幕效果" width="760"></p>
 
 > 实时字幕配色:白=原文 · 青=已定稿译文 · 琥珀=临时译文 · 灰斜体=识别中草稿
 
@@ -120,7 +120,7 @@ flowchart LR
 - LLM 增强层做它擅长的事:给发言人起角色名、纠 ASR 同音错字、只在明显矛盾处轻改归属。
 - 声纹库:开完会确认"发言人2 是张三"可存入库,下次开会高相似度自动标真名(宁可不认不认错)。
 
-![会议纪要](docs/meeting_preview.png)
+<p align="center"><img src="docs/meeting_preview.png" alt="会议纪要" width="560"></p>
 
 ## 目录结构
 
@@ -210,7 +210,7 @@ flowchart LR
     F -.可选烧录.-> H[ffmpeg 硬压<br/>烧录进视频]
 ```
 
-![离线字幕](docs/offline_preview.png)
+<p align="center"><img src="docs/offline_preview.png" alt="离线字幕" width="560"></p>
 
 图形界面在主页选「离线模式」即可(可批量加多个视频)。命令行:
 
