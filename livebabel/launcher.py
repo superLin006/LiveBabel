@@ -126,8 +126,10 @@ class Launcher(QWidget):
 
         title = QLabel("LiveBabel")
         title.setObjectName("title")
+        title.setAlignment(Qt.AlignHCenter)
         sub = QLabel("实时字幕 · 离线字幕 · 会议纪要")
         sub.setObjectName("subtitle")
+        sub.setAlignment(Qt.AlignHCenter)
         root.addWidget(title)
         root.addWidget(sub)
         root.addSpacing(28)
