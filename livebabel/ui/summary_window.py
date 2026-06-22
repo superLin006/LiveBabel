@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtCore import QObject, Signal
 
-from livebabel.gui_common import apply_theme, app_icon
+from livebabel.ui.gui_common import apply_theme, app_icon
 
 
 class SummaryWindow(QWidget):
@@ -35,7 +35,7 @@ class SummaryWindow(QWidget):
         super().showEvent(e)
         if not self._dark_titlebar_done:
             self._dark_titlebar_done = True
-            from livebabel.gui_common import enable_dark_titlebar
+            from livebabel.ui.gui_common import enable_dark_titlebar
             enable_dark_titlebar(self)
 
     def _build(self) -> None:
@@ -130,7 +130,7 @@ def wire_summarize(overlay, manager, get_api_key) -> None:
     get_api_key: 无参函数,返回当前可用的 DeepSeek key
     """
     import threading
-    from livebabel.summarizer import summarize
+    from livebabel.core.summarizer import summarize
 
     state = {"win": None, "busy": False}
     runner = _SummaryRunner(overlay)

@@ -59,9 +59,14 @@ def main() -> None:
         cleanup_stale_temp()
     except Exception:
         pass
-    from livebabel.launcher import main as _main
+    from livebabel.ui.launcher import main as _main
     _main()
 
 
 if __name__ == "__main__":
+    # 关键:离线转录用 multiprocessing(spawn)隔离 GPU。打包后(PyInstaller)
+    # 子进程会重新启动本 exe,必须先调 freeze_support(),否则子进程会再次跑起
+    # 整个 GUI → 无限弹窗。必须在任何重活之前、main() 之前调用。
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

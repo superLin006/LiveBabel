@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from livebabel.gui_common import (
+from livebabel.ui.gui_common import (
     apply_theme, app_icon, info, error, card, section_label,
     TEXT, SUBTEXT, ACCENT, CARD, BORDER, DANGER, WIN_W, WIN_H,
 )
@@ -124,7 +124,7 @@ class MeetingWindow(QWidget):
         super().showEvent(e)
         if not self._dark_titlebar_done:
             self._dark_titlebar_done = True
-            from livebabel.gui_common import enable_dark_titlebar
+            from livebabel.ui.gui_common import enable_dark_titlebar
             enable_dark_titlebar(self)
 
     # ---- UI ----
@@ -539,7 +539,7 @@ class MeetingWindow(QWidget):
         sid = next((s for s, lab in sid2label.items() if lab == label), None)
         if sid is None or sid not in centroids:
             return
-        from livebabel.gui_common import confirm
+        from livebabel.ui.gui_common import confirm
         if confirm(self, "存入声纹库",
                    f"把「{name}」的声纹记住吗?\n以后开会会自动认出 ta,不用再手动改名。"):
             try:
@@ -625,7 +625,7 @@ class MeetingWindow(QWidget):
 
     def closeEvent(self, e) -> None:
         if self.pipeline and self.pipeline.running:
-            from livebabel.gui_common import confirm
+            from livebabel.ui.gui_common import confirm
             if not confirm(self, "正在录制", "会议还在录制中,确定关闭吗?"):
                 e.ignore()
                 return
