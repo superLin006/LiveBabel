@@ -41,6 +41,7 @@ class Translator:
         """
         self.on_result = on_result
         self.target_lang = target_lang
+        self.enabled = True         # 「不翻译」模式置 False,submit 直接跳过
         self.api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
         self._q: queue.Queue[Optional[tuple[int, str, bool]]] = queue.Queue()
         self._inflight = 0          # 已提交但未完成的翻译数(含请求中)
@@ -57,6 +58,8 @@ class Translator:
         临时和最终译文都带上下文以保证质量;quick=True(临时)仅表示"不写回历史"
         (因为临时文本会被 SenseVoice 最终版替换,不该污染后续上下文)。
         """
+        if not self.enabled:
+            return                  # 「不翻译」模式:不发起任何翻译请求
         with self._inflight_lock:
             self._inflight += 1
         self._q.put((seg_id, text, quick))
