@@ -1,0 +1,73 @@
+name: Build macOS app
+
+# 云端打包 LiveBabel.app(无需本地 Mac)。
+#  * 手动触发:Actions 页面点「Run workflow」,选 macos 分支
+#  * 打 tag(v*-mac 或 v*):自动打包并把 zip 发到对应 Release
+# 产物:dist 目录里的 LiveBabel.app 压成 LiveBabel-mac-arm64.zip,
+#       作为 artifact 下载(保留 14 天),tag 时另发到 Release。
+#
+# 说明:macos-14 runner = Apple Silicon(arm64),装的是原生 arm64 python,
+# 所以不存在架构装错的问题。模型不打进包(太大),靠 .app 首启自动下载,
+# 与 Windows CPU 版一致。
+
+on:
+  workflow_dispatch:        # 手动触发
+  push:
+    tags:
+      - "v*"                 # 打 tag 时自动打包
+
+jobs:
+  build:
+    runs-on: macos-14       # Apple Silicon / arm64 原生
+    timeout-minutes: 40
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 确认架构(应为 arm64)
+        run: |
+          echo "uname -m = $(uname -m)"
+          python3 -c "import platform; print('python machine =', platform.machine())"
+
+      - name: 装 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 装 ffmpeg(离线烧录 / 取音轨用)
+        run: brew install ffmpeg
+
+      - name: 装项目依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install py2app
+
+      - name: 打包 .app(build_mac.sh)
+        env:
+          CI: "true"        # 跳过脚本里的交互式架构确认
+        run: |
+          chmod +x packaging/build_mac.sh
+          ./packaging/build_mac.sh
+
+      - name: 压缩 .app 为 zip
+        run: |
+          cd dist
+          # -y 保留符号链接(.app 内有大量 framework 软链,不保留会损坏)
+          zip -ry LiveBabel-mac-arm64.zip LiveBabel.app
+          echo "== 产物 =="
+          ls -lh LiveBabel-mac-arm64.zip
+
+      - name: 上传为 artifact(Actions 页面下载,留 14 天)
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveBabel-mac-arm64
+          path: dist/LiveBabel-mac-arm64.zip
+          retention-days: 14
+
+      - name: 打 tag 时发到 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/LiveBabel-mac-arm64.zip

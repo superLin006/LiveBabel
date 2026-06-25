@@ -12,6 +12,24 @@ ROOT="$(pwd)"
 APP="dist/LiveBabel.app"
 RES="$APP/Contents/Resources"
 
+# 架构自检:确认运行打包的 python 架构 = 机器架构。Apple Silicon 上若误用
+# Rosetta 终端里的 Intel(x86_64)python,会装错架构的 onnxruntime/ctranslate2
+# wheel,打出的 .app 在 arm64 上加载动态库时崩溃。这里提前显眼提示。
+PY_ARCH="$(python -c 'import platform; print(platform.machine())')"
+HW_ARCH="$(uname -m)"
+echo "[arch] 机器=$HW_ARCH  python=$PY_ARCH"
+if [ "$PY_ARCH" != "$HW_ARCH" ]; then
+  echo "⚠ 警告:python 架构($PY_ARCH)与机器($HW_ARCH)不一致!"
+  echo "  你很可能在 Rosetta 终端里用了 Intel 版 python。打出来的包会是 $PY_ARCH,"
+  echo "  在 $HW_ARCH 上可能因架构不符而无法加载 sherpa/ctranslate2 动态库。"
+  echo "  建议:用原生 $HW_ARCH 的 python 重建虚拟环境后再打包。"
+  # CI(GitHub Actions)里无人交互,且 runner 架构已锁定,跳过确认直接继续。
+  if [ -z "$CI" ]; then
+    read -p "  仍要继续?(y/N) " ans
+    [ "$ans" = "y" ] || [ "$ans" = "Y" ] || { echo "已中止。"; exit 1; }
+  fi
+fi
+
 echo "[1/5] 安装 py2app ..."
 pip install py2app >/dev/null
 
