@@ -16,6 +16,9 @@ on:
     tags:
       - "v*"                 # 打 tag 时自动打包
 
+permissions:
+  contents: write           # 打 tag 时需要写权限来创建 / 更新 Release
+
 jobs:
   build:
     runs-on: macos-14       # Apple Silicon / arm64 原生
