@@ -1,4 +1,17 @@
-# LiveBabel · 实时双语字幕 / 离线字幕 / 会议纪要
+<p align="center">
+  <img src="assets/logo.png" alt="LiveBabel" width="160">
+</p>
+
+<h1 align="center">LiveBabel</h1>
+
+<p align="center">实时双语字幕 · 离线字幕 · 会议纪要</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue" alt="platform">
+  <img src="https://img.shields.io/badge/python-3.11-blue" alt="python">
+  <img src="https://img.shields.io/badge/GUI-PySide6-41cd52" alt="pyside6">
+</p>
 
 一个本地优先的语音转写工具,三种模式一站搞定:把电脑正在播放的声音**实时识别 + 翻译**
 成桌面悬浮双语字幕、给本地视频**离线生成双语字幕**、把线上/线下会议**转录并一键出纪要**。
