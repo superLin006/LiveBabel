@@ -103,6 +103,7 @@ class Launcher(QWidget):
         self._offline_win = None       # 持有引用,防被 GC
         self._meeting_win = None
         self._live_thread = None
+        self._dictation_tray = None    # 语音输入托盘服务(惰性创建,常驻后台)
 
         self.setWindowTitle("LiveBabel")
         self.resize(LAUNCHER_W, LAUNCHER_H)
@@ -150,6 +151,11 @@ class Launcher(QWidget):
             "📝", "会议纪要",
             "录制会议(区分我 / 远端),实时转录,一键生成结构化纪要并导出。适合线上 / 线下会议记录。",
             self._open_meeting,
+        ))
+        cards.addWidget(ModeCard(
+            "⌨️", "语音输入",
+            "全局热键说话,实时转成文字,自动输入到当前光标处。任意软件可用,适合聊天 / 写文档 / 填表。",
+            self._toggle_dictation,
         ))
         root.addLayout(cards, 1)
 
@@ -222,6 +228,12 @@ class Launcher(QWidget):
             self._offline_win.close()
         if self._meeting_win is not None:
             self._meeting_win.close()
+        # 停掉听写后台(全局热键钩子 + 引擎),避免进程退出后钩子残留
+        if self._dictation_tray is not None:
+            try:
+                self._dictation_tray.shutdown()
+            except Exception:
+                pass
         e.accept()
 
     # ---- 模式 ----
@@ -251,6 +263,32 @@ class Launcher(QWidget):
         self._meeting_win.show()
         self._meeting_win.raise_()
         self._meeting_win.activateWindow()
+
+    def _toggle_dictation(self) -> None:
+        """启用语音输入:常驻后台 + 系统托盘,全局热键随时听写。"""
+        import sys as _sys
+        if not _sys.platform.startswith("win"):
+            from livebabel.ui.gui_common import info
+            info(self, "暂不支持",
+                 "语音输入目前仅 Windows 可用,macOS 适配开发中。")
+            return
+        if self._dictation_tray is not None:
+            from livebabel.ui.gui_common import info
+            info(self, "语音输入已在运行",
+                 "语音输入已常驻后台(系统托盘)。\n"
+                 "按住 Ctrl+Alt 说话,松开即输入;双击 Ctrl+Alt 切换常开。")
+            return
+        try:
+            from livebabel.ui.tray import DictationTray
+            self._dictation_tray = DictationTray(parent=self)
+            self._dictation_tray.show()
+            self._dictation_tray.enable()   # 点卡片即启用
+        except Exception as e:
+            self._dictation_tray = None
+            from livebabel.ui.gui_common import error
+            error(self, "启用失败",
+                  f"语音输入启用失败:\n{type(e).__name__}: {e}\n\n"
+                  "请确认已安装 keyboard 依赖(pip install keyboard),且模型已下载。")
 
     def _start_live(self) -> None:
         """启动实时悬浮窗。复用 app.py 的流水线;悬浮窗为独立顶层窗,与本启动器共存。"""
