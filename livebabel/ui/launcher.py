@@ -506,6 +506,20 @@ def _start_live_overlay(api_key: str):
             history.add(seg.text, tr)
     translator.on_result = set_and_refresh
 
+    def log_untranslated() -> None:
+        """「不翻译」时翻译回调永远不触发,历史要在定稿时直接记原文。
+        (翻译开着则不在这里写:等译文到了由 set_and_refresh 原文+译文一起写。)"""
+        if translator.enabled:
+            return
+        for seg in manager.committed:
+            if not seg.provisional and seg.id not in _logged:
+                _logged.add(seg.id)
+                history.add(seg.text, None)
+
+    def on_pipeline_change() -> None:
+        push_to_overlay()
+        log_untranslated()
+
     def on_lang_changed(lang: str) -> None:
         translator.target_lang = lang
         translator.enabled = overlay.translate_enabled()
@@ -534,7 +548,7 @@ def _start_live_overlay(api_key: str):
 
     worker = threading.Thread(
         target=live_app.pipeline_thread,
-        args=(args, manager, translator, push_to_overlay,
+        args=(args, manager, translator, on_pipeline_change,
               lambda: stopped["v"], lambda: paused["v"]),
         daemon=True,
     )
