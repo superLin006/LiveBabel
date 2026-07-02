@@ -136,7 +136,7 @@ class MeetingWindow(QWidget):
 
         title = QLabel("会议纪要")
         title.setObjectName("title")
-        sub = QLabel("录制会议 → 区分发言方(我 / 远端)→ 一键生成纪要")
+        sub = QLabel("录制会议 → 区分发言人 → 一键生成纪要")
         sub.setObjectName("subtitle")
         root.addWidget(title)
         root.addWidget(sub)
@@ -150,7 +150,7 @@ class MeetingWindow(QWidget):
         self.src_combo.addItems([
             "麦克风 + 系统声音(线上会议:我+远端)",
             "仅系统声音(只录远端/外放)",
-            "仅麦克风(只录我/线下)",
+            "仅麦克风(线下现场/只录我)",
         ])
         src_row.addWidget(self.src_combo, 1)
         refresh_btn = QPushButton("刷新设备")
@@ -179,11 +179,13 @@ class MeetingWindow(QWidget):
         head_row.setSpacing(8)
         head_row.addWidget(section_label("实时转录"))
         head_row.addStretch(1)
-        head_row.addWidget(QLabel("远端人数"))
+        head_row.addWidget(QLabel("发言人数"))
         self.spk_count = QComboBox()
         self.spk_count.addItems(["2", "3", "4", "5", "6", "自动"])  # 默认 2 人,指定最准
         self.spk_count.setCurrentIndex(0)
-        self.spk_count.setToolTip("已知远端有几个人就选几人(最准);「自动」效果不稳定")
+        self.spk_count.setToolTip(
+            "要区分的那一路里有几个人就选几人(最准):\n"
+            "线上会议=远端人数;线下(仅麦克风)=现场总人数。「自动」效果不稳定")
         head_row.addWidget(self.spk_count)
         self.diar_btn = QPushButton("区分说话人")
         self.diar_btn.clicked.connect(self._diarize)
@@ -282,6 +284,10 @@ class MeetingWindow(QWidget):
                 return
             use_mic = False
             self.status.setText("未检测到麦克风,本次只录系统声音(远端)。")
+        # 线下模式(仅麦克风):整屋人都进麦这一路,标"现场";会后声纹分析也分析这一路。
+        # 记在成员上(而非临时读下拉框):停录后用户可能改下拉框,分析要按录制时的模式来。
+        mic_only = use_mic and not use_lb
+        self._rec_mic_only = mic_only
         # 清掉上一场的临时音频文件,避免泄漏
         if self.pipeline is not None:
             try:
@@ -295,7 +301,8 @@ class MeetingWindow(QWidget):
         self.status.setText("正在加载模型并录制…(首次稍慢)")
         self.pipeline = MeetingPipeline(
             self.recorder, on_update=self.bridge.transcript_dirty.emit,
-            use_mic=use_mic, use_loopback=use_lb)
+            use_mic=use_mic, use_loopback=use_lb,
+            mic_label="现场" if mic_only else "我")
         try:
             self.pipeline.start()
         except Exception as e:
@@ -417,9 +424,14 @@ class MeetingWindow(QWidget):
                   "未找到说话人分离模型(segmentation / embedding)。\n"
                   "请运行 download_models 下载,或放到 models\\ 目录。")
             return
-        audio = self.pipeline.get_audio("远端") if self.pipeline else None
+        # 按录制时的模式选要分析的那一路:线上分"远端"(麦=本人,无需分);
+        # 线下仅麦克风时全屋人都在"现场"这一路,分它;标签不带前缀(直接"发言人N")。
+        mic_only = getattr(self, "_rec_mic_only", False)
+        base = "现场" if mic_only else "远端"
+        fmt = "发言人{n}" if mic_only else "{base}-发言人{n}"
+        audio = self.pipeline.get_audio(base) if self.pipeline else None
         if audio is None or len(audio) < 16000:
-            info(self, "无可分析音频", "没有录到足够的「远端」音频用于区分说话人。")
+            info(self, "无可分析音频", f"没有录到足够的「{base}」音频用于区分说话人。")
             return
         sel = self.spk_count.currentText()
         num = -1 if sel == "自动" else int(sel)
@@ -437,7 +449,11 @@ class MeetingWindow(QWidget):
                         self.bridge.diar_progress.emit(int(100 * done / total))
                 segs, centroids = diar.diarize(audio, num_speakers=num,
                                                on_progress=prog, return_centroids=True)
-                n = self.recorder.refine_speaker("远端", segs)
+                if not segs:
+                    self.bridge.diar_fail.emit(
+                        "未从录音中检测到清晰的人声(可能音量过低),无法区分说话人。")
+                    return
+                n = self.recorder.refine_speaker(base, segs, label_fmt=fmt)
                 # 声纹库自动认人:每个聚类质心比库,够像(高阈值)就标真名。
                 # 在 LLM 之前写,且声纹认出的优先(真实身份 > LLM 猜名)。
                 self._diar_centroids = centroids        # 存给"存入声纹库"用
@@ -480,12 +496,12 @@ class MeetingWindow(QWidget):
         rec_n = len(getattr(self, "_recognized_labels", set()))
         if n > 1:
             tip = "(声纹+AI校正,可再重命名)" if (self._api_key or "").strip() else "(可再重命名)"
-            msg = f"✓ 远端已区分为 {n} 位发言人{tip}"
+            msg = f"✓ 已区分出 {n} 位发言人{tip}"
             if rec_n:
                 msg += f";声纹库自动认出 {rec_n} 人"
             self.status.setText(msg)
         else:
-            self.status.setText("✓ 分析完成:远端只识别到 1 位发言人")
+            self.status.setText("✓ 分析完成:只识别到 1 位发言人")
 
     def _on_diar_fail(self, msg: str) -> None:
         self._busy = False
