@@ -1,7 +1,7 @@
 """两阶段听写引擎:复用实时/会议模式同款的 VadTwoPassAsr。
 
-说话时:每帧 feed() → 若干事件(volatile 草稿 / provisional / final),volatile 经
-        on_draft 回调实时显示草稿。
+说话时:每帧 feed() → 若干事件(volatile 草稿 / provisional / final),经
+        on_draft(committed, volatile) 回调实时显示草稿(已定稿/未定稿分开传,浮窗分色)。
 松开时:stop() → finalize() 把残留语音段强制定稿,按段拼接返回完整最终文本供注入。
 
 用 VadTwoPassAsr(silero-VAD 主动分段)而非 TwoPassAsr(靠流式 endpoint):后者
@@ -28,9 +28,11 @@ MAX_SECONDS = 60.0
 
 
 class StreamDictationEngine:
-    """两阶段听写引擎。on_draft(text) 在采集线程内被调用,用于刷新草稿浮窗。"""
+    """两阶段听写引擎。on_draft(committed, volatile) 在采集线程内被调用
+    (service 负责转主线程):committed=已定稿文本,volatile=未定稿草稿,
+    浮窗可分色显示。最终文本由 stop() 返回,一次性注入。"""
 
-    def __init__(self, on_draft: Optional[Callable[[str], None]] = None,
+    def __init__(self, on_draft: Optional[Callable[[str, str], None]] = None,
                  num_threads: int = 2) -> None:
         self._on_draft = on_draft
         self._num_threads = num_threads
@@ -44,6 +46,7 @@ class StreamDictationEngine:
         # 已定稿文本,按语音段 utt_id 存(final 覆盖同段 provisional)
         self._seg_text: dict[int, str] = {}
         self._last_volatile = ""
+        self._last_emit = ("", "")   # 草稿去重,内容没变不重复回调
 
     # ---------- 模型懒加载 ----------
 
@@ -75,6 +78,7 @@ class StreamDictationEngine:
         self._running = True
         self._seg_text = {}
         self._last_volatile = ""
+        self._last_emit = ("", "")
         self._thread = threading.Thread(target=self._run, name="dictation-asr", daemon=True)
         self._thread.start()
         return True
@@ -121,11 +125,12 @@ class StreamDictationEngine:
     def _emit_draft(self) -> None:
         if self._on_draft is None:
             return
-        text = self._committed_text()
-        if self._last_volatile:
-            text += self._last_volatile
+        cur = (self._committed_text(), self._last_volatile)
+        if cur == self._last_emit:
+            return               # 内容没变,不刷 UI
+        self._last_emit = cur
         try:
-            self._on_draft(text)
+            self._on_draft(*cur)
         except Exception:
             pass
 

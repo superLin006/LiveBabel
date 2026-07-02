@@ -27,9 +27,9 @@ class DictationTray:
         self._build_menu()
 
         # service 信号 → 主线程更新浮窗
+        self._service.started.connect(self._overlay.begin_session)
         self._service.draftChanged.connect(self._overlay.show_draft)
-        self._service.finalReady.connect(self._overlay.show_final)
-        self._service.stopped.connect(self._on_stopped)
+        self._service.finalText.connect(self._overlay.end_session)
         self._service.error.connect(self._on_error)
 
     # ---------- 菜单 ----------
@@ -90,12 +90,6 @@ class DictationTray:
         self._service.set_inject_mode(mode)
         self._act_paste.setChecked(mode == "paste")
         self._act_type.setChecked(mode == "type")
-
-    def _on_stopped(self) -> None:
-        # stopped 先于 finalReady 触发(同线程顺序):这里先让浮窗淡出;
-        # 若有最终文本,紧随的 finalReady → show_final 会覆盖淡出并显示结果。
-        # 若无最终文本(全是噪声),finalReady 不触发,浮窗就此淡出,不会残留。
-        self._overlay.fade_out()
 
     def _on_error(self, msg: str) -> None:
         self._tray.showMessage("语音输入", msg, QSystemTrayIcon.Warning, 4000)

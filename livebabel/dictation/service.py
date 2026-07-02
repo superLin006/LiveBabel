@@ -20,13 +20,12 @@ from livebabel.dictation.stream_asr import StreamDictationEngine
 
 class DictationService(QObject):
     # 对外:投递到主线程的信号
-    draftChanged = Signal(str)     # 流式草稿更新
-    finalReady = Signal(str)       # 最终文本(已注入)
+    draftChanged = Signal(str, str)  # 流式草稿更新(已定稿, 未定稿),浮窗分色显示
     started = Signal()             # 一次听写开始
-    stopped = Signal()             # 一次听写结束
+    finalText = Signal(str)        # 一轮结束的完整文本(浮窗收尾显示一瞬)
     error = Signal(str)
 
-    # 内部:把热键事件从钩子线程投递到主线程(QueuedConnection)
+    # 内部:跨线程投递到主线程(QueuedConnection)
     _reqStart = Signal()
     _reqStop = Signal()
 
@@ -87,16 +86,16 @@ class DictationService(QObject):
     def _end(self) -> None:
         if not self._engine.is_running():
             return
+        # 说完一次性注入完整文本(草稿只在浮窗实时显示,输入框只收最终结果)。
         text = self._engine.stop()
-        self.stopped.emit()
+        self.finalText.emit(text)       # 浮窗收尾(显示一瞬再淡出)
         if text:
-            self._inject(text)        # 主线程注入,剪贴板 COM 正常
-            self.finalReady.emit(text)
+            self._inject(text)          # 主线程注入,剪贴板 COM 正常
 
-    # ---------- 草稿(engine 工作线程)----------
+    # ---------- 回调(engine 工作线程)----------
 
-    def _on_draft(self, text: str) -> None:
-        self.draftChanged.emit(text)   # 信号自动跨线程到主线程
+    def _on_draft(self, committed: str, volatile: str) -> None:
+        self.draftChanged.emit(committed, volatile)  # 信号自动跨线程到主线程
 
     # ---------- 注入(主线程)----------
 
