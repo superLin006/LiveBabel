@@ -11,13 +11,17 @@ import sys
 IS_MAC = sys.platform == "darwin"
 
 
-def make_pipeline(recorder, on_update, use_mic: bool = True, use_loopback: bool = True):
-    """创建会议管线:macOS 用 MacMeetingPipeline,其余用 MeetingPipeline。"""
+def make_pipeline(recorder, on_update, use_mic: bool = True, use_loopback: bool = True,
+                  mic_label: str = "我"):
+    """创建会议管线:macOS 用 MacMeetingPipeline,其余用 MeetingPipeline。
+    mic_label:麦克风一路的说话人标签(线下仅麦克风时传"现场")。"""
     if IS_MAC:
         from livebabel.meeting.pipeline_mac import MacMeetingPipeline
-        return MacMeetingPipeline(recorder, on_update, use_mic=use_mic, use_loopback=use_loopback)
+        return MacMeetingPipeline(recorder, on_update, use_mic=use_mic,
+                                  use_loopback=use_loopback, mic_label=mic_label)
     from livebabel.meeting.pipeline import MeetingPipeline
-    return MeetingPipeline(recorder, on_update, use_mic=use_mic, use_loopback=use_loopback)
+    return MeetingPipeline(recorder, on_update, use_mic=use_mic,
+                           use_loopback=use_loopback, mic_label=mic_label)
 
 
 def has_microphone() -> bool:

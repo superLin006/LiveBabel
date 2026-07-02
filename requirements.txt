@@ -10,6 +10,7 @@ PySide6
 # 音频采集:按平台自动选(PEP 508 环境标记,pip 会按 OS 跳过不匹配的)
 pyaudiowpatch ; platform_system == "Windows"   # Windows 系统声音(WASAPI loopback)
 sounddevice   ; platform_system == "Darwin"    # macOS 采集(PortAudio;配 BlackHole 抓系统声)
+keyboard ; platform_system == "Windows"   # 语音输入:全局热键 + 模拟粘贴(仅 Windows)
 
 # 离线模式(tools/offline_subtitle.py)。不用离线功能可不装。
 faster-whisper       # 离线识别(large-v3-turbo,99 语言,带时间戳,不依赖 torch)

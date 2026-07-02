@@ -226,14 +226,15 @@ class MeetingRecorder:
         """声纹分完后,用 LLM 做增强:① 给说话人起名/角色 ② 纠 ASR 同音错字
         ③ 仅在明显矛盾处轻改归属。返回 {'named':n, 'fixed':n, 'reassigned':n}。
 
-        只对已细分(speaker 含"-发言人")的条目做。无 key/失败则不动、返回全 0。
+        只对已细分(speaker 含"发言人",如"远端-发言人N"或线下的"发言人N")的条目做。
+        无 key/失败则不动、返回全 0。
         protect: 已被声纹库认出真名的标签集合,LLM 不再给它们起名(真实身份优先)。
         """
         from livebabel.meeting.llm_refine import refine
         protect = protect or set()
         stat = {"named": 0, "fixed": 0, "reassigned": 0}
         with self._lock:
-            idxs = [i for i, u in enumerate(self._items) if "-发言人" in u.speaker]
+            idxs = [i for i, u in enumerate(self._items) if "发言人" in u.speaker]
             if not idxs:
                 return stat
             items = [(i, self._items[i].speaker, self._items[i].text) for i in idxs]

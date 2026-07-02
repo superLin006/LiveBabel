@@ -100,11 +100,15 @@ class _Track:
 
 class MeetingPipeline:
     def __init__(self, recorder, on_update: Callable[[], None],
-                 use_mic: bool = True, use_loopback: bool = True) -> None:
+                 use_mic: bool = True, use_loopback: bool = True,
+                 mic_label: str = "我") -> None:
         self.recorder = recorder
         self.on_update = on_update
         self.use_mic = use_mic
         self.use_loopback = use_loopback
+        # 麦克风一路的说话人标签:线上会议是"我"(麦=本人);
+        # 线下仅麦克风时整屋人都进这一路,标"现场"更贴切(会后可声纹细分)
+        self.mic_label = mic_label
         self._stop = False
         self._pa = None
         self._tracks: List[_Track] = []
@@ -169,7 +173,7 @@ class MeetingPipeline:
         if self.use_mic:
             from livebabel.asr.audio_source_mic import MicrophoneSource
             dev = MicrophoneSource._pick_input_device(self._pa)
-            self._tracks.append(self._open_track(self._pa, dev, "我"))
+            self._tracks.append(self._open_track(self._pa, dev, self.mic_label))
 
         for tr in self._tracks:
             tr.stream.start_stream()

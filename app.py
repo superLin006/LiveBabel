@@ -98,6 +98,7 @@ def main() -> None:
             on_result=manager.set_translation, target_lang=overlay.s["lang"],
             api_key=overlay.s.get("api_key", ""),
         )
+        translator.enabled = overlay.translate_enabled()   # 「不翻译」则不发请求
         # 右键里改了 key → 更新运行中的 translator
         overlay.api_key_changed.connect(
             lambda k: setattr(translator, "api_key",
@@ -130,12 +131,30 @@ def main() -> None:
                     history.add(seg.text, tr)
         translator.on_result = set_and_refresh
 
+    def log_untranslated() -> None:
+        """不翻译时(--no-translate 或悬浮窗选「不翻译」)翻译回调不触发,
+        历史在定稿时直接记原文;翻译开着则仍由 set_and_refresh 连译文一起写。"""
+        if history is None or (translator is not None and translator.enabled):
+            return
+        for seg in manager.committed:
+            if not seg.provisional and seg.id not in _logged:
+                _logged.add(seg.id)
+                history.add(seg.text, None)
+
+    def on_pipeline_change() -> None:
+        push_to_overlay()
+        log_untranslated()
+
     # 右键切换语种 → 改 translator 目标语言;屏幕上已显示的句子重新翻译。
     # 重译用 quick=True:这些是回填,不该再写进上下文历史(避免重复污染)。
     def on_lang_changed(lang: str) -> None:
         if not translator:
             return
         translator.target_lang = lang
+        translator.enabled = overlay.translate_enabled()
+        if not translator.enabled:
+            push_to_overlay()        # 切到「不翻译」:立刻重绘成只显示原文
+            return
         for seg in manager.committed[-overlay.max_lines:]:
             translator.submit(seg.id, seg.text, quick=True)
     overlay.lang_changed.connect(on_lang_changed)
@@ -153,7 +172,7 @@ def main() -> None:
 
     worker = threading.Thread(
         target=pipeline_thread,
-        args=(args, manager, translator, push_to_overlay,
+        args=(args, manager, translator, on_pipeline_change,
               lambda: stopped["v"], lambda: paused["v"]),
         daemon=True,
     )

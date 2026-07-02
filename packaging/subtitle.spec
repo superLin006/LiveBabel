@@ -87,7 +87,7 @@ hiddenimports = (
     + collect_submodules("livebabel")
     + collect_submodules("ctranslate2")
     + ["app", "soundfile", "numpy", "requests", "certifi", "faster_whisper",
-       "av", "onnxruntime", "pyaudiowpatch"]
+       "av", "onnxruntime", "pyaudiowpatch", "keyboard"]
 )
 
 # CPU 版:启动即强制 CPU(避免在有 N 卡机器上尝试加载没打包的 GPU dll)

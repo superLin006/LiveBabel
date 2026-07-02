@@ -79,7 +79,7 @@ class MacMeetingPipeline(MeetingPipeline):
                 raise RuntimeError("未找到可用麦克风。")
             self._tracks.append(self._open_track_sd(
                 mic_idx, int(mic_info["default_samplerate"]),
-                int(mic_info["max_input_channels"]), "我"))
+                int(mic_info["max_input_channels"]), self.mic_label))
 
         for tr in self._tracks:
             tr.stream.start()

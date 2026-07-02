@@ -13,10 +13,14 @@ import os
 import sys
 import threading
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtGui import (
+    QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -28,55 +32,155 @@ from PySide6.QtWidgets import (
 
 from livebabel.ui.gui_common import (
     apply_theme, ACCENT, ACCENT_DEEP, BORDER, CARD, CARD_HOVER, SUBTEXT,
-    LAUNCHER_W, LAUNCHER_H,
+    LAUNCHER_W, LAUNCHER_H, APP_VERSION,
 )
 from livebabel.ui.overlay import load_settings, save_settings
 
+# 四种模式的图标主题色(苹果系统色,浅→深轻渐变)
+MODE_COLORS = {
+    "live":      ("#4DA3FF", "#0A84FF"),   # 蓝:实时
+    "offline":   ("#D08BFF", "#BF5AF2"),   # 紫:离线
+    "meeting":   ("#5BE080", "#30D158"),   # 绿:会议
+    "dictation": ("#FFBE4D", "#FF9F0A"),   # 橙:语音输入
+}
+
+
+def _mode_icon(kind: str, size: int = 46) -> QPixmap:
+    """画一枚 macOS 应用图标风格的彩色圆角图标块(渐变底 + 白色图形)。
+
+    不用 emoji:各系统渲染不一,风格也和浅色苹果风不搭;
+    QPainter 矢量绘制保证清晰一致,每个模式一个识别色。
+    """
+    c1, c2 = MODE_COLORS[kind]
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    g = QLinearGradient(0, 0, 0, size)
+    g.setColorAt(0.0, QColor(c1))
+    g.setColorAt(1.0, QColor(c2))
+    p.setBrush(g)
+    p.setPen(Qt.NoPen)
+    p.drawRoundedRect(0, 0, size, size, 11, 11)
+
+    m = size / 2
+    white = QColor("white")
+    pen = QPen(white, 2.4)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+
+    if kind == "live":            # 均衡器竖条:声音
+        p.setBrush(white)
+        w = 3.8
+        for i, h in enumerate((10, 17, 24, 17, 10)):
+            x = m + (i - 2) * 6.6
+            p.drawRoundedRect(QRectF(x - w / 2, m - h / 2, w, h), w / 2, w / 2)
+    elif kind == "offline":       # 播放三角:视频
+        tri = QPainterPath()
+        tri.moveTo(m - 7, m - 11)
+        tri.lineTo(m + 11, m)
+        tri.lineTo(m - 7, m + 11)
+        tri.closeSubpath()
+        p.setBrush(white)
+        p.drawPath(tri)
+    elif kind == "meeting":       # 一页纪要:白页 + 色线
+        page = QRectF(m - 9, m - 12, 18, 24)
+        p.setBrush(white)
+        p.drawRoundedRect(page, 3, 3)
+        lp = QPen(QColor(c2), 2.2)
+        lp.setCapStyle(Qt.RoundCap)
+        p.setPen(lp)
+        for i, dy in enumerate((-5.5, 0.0, 5.5)):
+            x2 = page.right() - (4 if i < 2 else 8)   # 末行短一截,更像文档
+            p.drawLine(QPointF(page.left() + 4, m + dy), QPointF(x2, m + dy))
+    elif kind == "dictation":     # 麦克风
+        p.setBrush(white)
+        p.drawRoundedRect(QRectF(m - 4.5, m - 14, 9, 15), 4.5, 4.5)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(pen)
+        p.drawArc(QRectF(m - 8.5, m - 9, 17, 16), 0, -180 * 16)
+        p.drawLine(QPointF(m, m + 7), QPointF(m, m + 11))
+        p.drawLine(QPointF(m - 5, m + 11.5), QPointF(m + 5, m + 11.5))
+    p.end()
+    return pm
+
 
 class ModeCard(QFrame):
-    """一张可点击的模式卡片:图标 + 标题 + 说明。整卡可点。"""
+    """一张可点击的模式卡片:彩色图标块 + 标题 + 一句话说明。整卡可点。
 
-    def __init__(self, emoji: str, title: str, desc: str, on_click, enabled=True):
+    悬停时投影加深、轻微"浮起";常驻型功能(语音输入)可用 set_running()
+    在卡片上显示「● 运行中」角标。完整说明放 tooltip,正文只留一句。
+    """
+
+    def __init__(self, kind: str, title: str, desc: str, tip: str,
+                 on_click, enabled=True):
         super().__init__()
         self._on_click = on_click
         self._enabled = enabled
         self.setCursor(Qt.PointingHandCursor if enabled else Qt.ArrowCursor)
         self.setObjectName("card")
         self.setStyleSheet(self._qss())
+        if tip:
+            self.setToolTip(tip)
 
         # 苹果风卡片:柔和投影,营造"浮于浅灰背景之上"的层次感
-        from PySide6.QtWidgets import QGraphicsDropShadowEffect
-        from PySide6.QtGui import QColor
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setXOffset(0)
-        shadow.setYOffset(4)
-        shadow.setColor(QColor(0, 0, 0, 28))
-        self.setGraphicsEffect(shadow)
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setXOffset(0)
+        self._set_lift(False)
+        self.setGraphicsEffect(self._shadow)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 24, 24, 24)
-        lay.setSpacing(10)
+        lay.setContentsMargins(22, 22, 22, 20)
+        lay.setSpacing(0)
 
-        icon = QLabel(emoji)
-        icon.setStyleSheet("font-size: 42px; background: transparent;")
+        icon = QLabel()
+        icon.setPixmap(_mode_icon(kind))
+        icon.setStyleSheet("background: transparent;")
         t = QLabel(title)
-        t.setStyleSheet("font-size: 18px; font-weight: 600; background: transparent;")
+        t.setStyleSheet("font-size: 17px; font-weight: 600; background: transparent;")
         d = QLabel(desc)
         d.setWordWrap(True)
         d.setStyleSheet(f"color: {SUBTEXT}; font-size: 12px; background: transparent;")
 
         lay.addWidget(icon)
+        lay.addSpacing(14)
         lay.addWidget(t)
+        lay.addSpacing(6)
         lay.addWidget(d)
         lay.addStretch(1)
 
+        # 运行状态角标(默认隐藏,常驻型功能启用后显示)
+        self._badge = QLabel("●  运行中")
+        self._badge.setStyleSheet(
+            "color: #30D158; font-size: 11px; font-weight: 600;"
+            " background: transparent;")
+        self._badge.hide()
+        lay.addWidget(self._badge)
+
         if not enabled:
-            badge = QLabel("即将推出")
-            badge.setStyleSheet(
-                f"color: {SUBTEXT}; font-size: 11px; background: transparent;"
-            )
-            lay.addWidget(badge)
+            soon = QLabel("即将推出")
+            soon.setStyleSheet(
+                f"color: {SUBTEXT}; font-size: 11px; background: transparent;")
+            lay.addWidget(soon)
+
+    def set_running(self, on: bool) -> None:
+        """显示/隐藏「运行中」角标(语音输入等常驻开关型功能用)。"""
+        self._badge.setVisible(on)
+
+    def _set_lift(self, hovered: bool) -> None:
+        """悬停"浮起":投影更深更弥散,像卡片被轻轻抬起。"""
+        self._shadow.setBlurRadius(32 if hovered else 24)
+        self._shadow.setYOffset(8 if hovered else 4)
+        self._shadow.setColor(QColor(0, 0, 0, 48 if hovered else 28))
+
+    def enterEvent(self, e) -> None:
+        if self._enabled:
+            self._set_lift(True)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e) -> None:
+        self._set_lift(False)
+        super().leaveEvent(e)
 
     def _qss(self) -> str:
         if not self._enabled:
@@ -103,6 +207,7 @@ class Launcher(QWidget):
         self._offline_win = None       # 持有引用,防被 GC
         self._meeting_win = None
         self._live_thread = None
+        self._dictation_tray = None    # 语音输入托盘服务(惰性创建,常驻后台)
 
         self.setWindowTitle("LiveBabel")
         self.resize(LAUNCHER_W, LAUNCHER_H)
@@ -124,33 +229,63 @@ class Launcher(QWidget):
         root.setContentsMargins(40, 36, 40, 28)
         root.setSpacing(6)
 
+        # 品牌头:logo(assets/logo.png)+ 字标,横排居中
+        from livebabel.paths import ICON_PNG
+        head = QHBoxLayout()
+        head.setSpacing(14)
+        head.addStretch(1)
+        logo_pm = QPixmap(ICON_PNG)
+        if not logo_pm.isNull():
+            logo = QLabel()
+            logo.setPixmap(logo_pm.scaled(
+                52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            logo.setStyleSheet("background: transparent;")
+            head.addWidget(logo)
+        tcol = QVBoxLayout()
+        tcol.setSpacing(2)
         title = QLabel("LiveBabel")
         title.setObjectName("title")
-        title.setAlignment(Qt.AlignHCenter)
-        sub = QLabel("实时字幕 · 离线字幕 · 会议纪要")
+        sub = QLabel("实时字幕 · 离线字幕 · 会议纪要 · 语音输入")
         sub.setObjectName("subtitle")
-        sub.setAlignment(Qt.AlignHCenter)
-        root.addWidget(title)
-        root.addWidget(sub)
-        root.addSpacing(28)
+        tcol.addWidget(title)
+        tcol.addWidget(sub)
+        head.addLayout(tcol)
+        head.addStretch(1)
+        root.addLayout(head)
+        root.addSpacing(26)
 
+        # 模式卡片:正文一句话,完整说明进 tooltip(文字砖会压垮卡片的呼吸感)
         cards = QHBoxLayout()
         cards.setSpacing(18)
         cards.addWidget(ModeCard(
-            "🎧", "实时模式",
-            "抓取电脑正在播放的声音,实时识别并翻译,以悬浮字幕显示。适合看直播 / 视频会议 / 在线课程。",
+            "live", "实时模式",
+            "实时识别电脑播放的声音,悬浮双语字幕。",
+            "抓取电脑正在播放的声音,实时识别并翻译,以悬浮字幕显示。\n"
+            "适合看直播 / 视频会议 / 在线课程。",
             self._start_live,
         ))
         cards.addWidget(ModeCard(
-            "🎬", "离线模式",
-            "选择本地视频文件,生成双语字幕(SRT / ASS),可直接烧录进视频。适合给录播 / 影片配字幕。",
+            "offline", "离线模式",
+            "本地视频一键生成双语字幕(SRT / ASS)。",
+            "选择本地视频文件,生成双语字幕(SRT / ASS),可直接烧录进视频。\n"
+            "适合给录播 / 影片配字幕。",
             self._open_offline,
         ))
         cards.addWidget(ModeCard(
-            "📝", "会议纪要",
-            "录制会议(区分我 / 远端),实时转录,一键生成结构化纪要并导出。适合线上 / 线下会议记录。",
+            "meeting", "会议纪要",
+            "录制转录、区分发言人,一键生成纪要。",
+            "录制会议,实时转录并区分发言人,一键生成结构化纪要并导出。\n"
+            "适合线上 / 线下会议记录。",
             self._open_meeting,
         ))
+        self._card_dictation = ModeCard(
+            "dictation", "语音输入",
+            "按住热键说话,文字输入到任意软件。",
+            "全局热键(Ctrl+Alt)说话,实时转成文字,自动输入到当前光标处。\n"
+            "任意软件可用,适合聊天 / 写文档 / 填表。再点一次卡片可关闭。",
+            self._toggle_dictation,
+        )
+        cards.addWidget(self._card_dictation)
         root.addLayout(cards, 1)
 
         root.addSpacing(24)
@@ -175,6 +310,13 @@ class Launcher(QWidget):
         kc.addLayout(key_row)
         root.addWidget(key_card)
         self._refresh_key_status()
+
+        # 版本页脚
+        ver = QLabel(f"v{APP_VERSION}")
+        ver.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        ver.setAlignment(Qt.AlignRight)
+        root.addSpacing(4)
+        root.addWidget(ver)
 
     @staticmethod
     def _whisper_local() -> bool:
@@ -222,6 +364,12 @@ class Launcher(QWidget):
             self._offline_win.close()
         if self._meeting_win is not None:
             self._meeting_win.close()
+        # 停掉听写后台(全局热键钩子 + 引擎),避免进程退出后钩子残留
+        if self._dictation_tray is not None:
+            try:
+                self._dictation_tray.shutdown()
+            except Exception:
+                pass
         e.accept()
 
     # ---- 模式 ----
@@ -251,6 +399,37 @@ class Launcher(QWidget):
         self._meeting_win.show()
         self._meeting_win.raise_()
         self._meeting_win.activateWindow()
+
+    def _toggle_dictation(self) -> None:
+        """点卡片切换语音输入:启用=常驻后台+托盘;再点一次关闭。"""
+        if not sys.platform.startswith("win"):
+            from livebabel.ui.gui_common import info
+            info(self, "暂不支持",
+                 "语音输入目前仅 Windows 可用,macOS 适配开发中。")
+            return
+        if self._dictation_tray is not None:
+            # 运行中 → 关闭(shutdown 会回调 _on_dictation_off 清引用+灭角标)
+            self._dictation_tray.shutdown()
+            return
+        try:
+            from livebabel.ui.tray import DictationTray
+            self._dictation_tray = DictationTray(
+                parent=self, on_shutdown=self._on_dictation_off)
+            self._dictation_tray.show()
+            self._dictation_tray.enable()   # 点卡片即启用
+            self._card_dictation.set_running(True)
+        except Exception as e:
+            self._dictation_tray = None
+            self._card_dictation.set_running(False)
+            from livebabel.ui.gui_common import error
+            error(self, "启用失败",
+                  f"语音输入启用失败:\n{type(e).__name__}: {e}\n\n"
+                  "请确认已安装 keyboard 依赖(pip install keyboard),且模型已下载。")
+
+    def _on_dictation_off(self) -> None:
+        """语音输入被关掉(点卡片 / 托盘菜单「退出」都走这里):同步卡片状态。"""
+        self._dictation_tray = None
+        self._card_dictation.set_running(False)
 
     def _start_live(self) -> None:
         """启动实时悬浮窗。复用 app.py 的流水线;悬浮窗为独立顶层窗,与本启动器共存。"""
@@ -327,6 +506,20 @@ def _start_live_overlay(api_key: str):
             history.add(seg.text, tr)
     translator.on_result = set_and_refresh
 
+    def log_untranslated() -> None:
+        """「不翻译」时翻译回调永远不触发,历史要在定稿时直接记原文。
+        (翻译开着则不在这里写:等译文到了由 set_and_refresh 原文+译文一起写。)"""
+        if translator.enabled:
+            return
+        for seg in manager.committed:
+            if not seg.provisional and seg.id not in _logged:
+                _logged.add(seg.id)
+                history.add(seg.text, None)
+
+    def on_pipeline_change() -> None:
+        push_to_overlay()
+        log_untranslated()
+
     def on_lang_changed(lang: str) -> None:
         translator.target_lang = lang
         translator.enabled = overlay.translate_enabled()
@@ -355,7 +548,7 @@ def _start_live_overlay(api_key: str):
 
     worker = threading.Thread(
         target=live_app.pipeline_thread,
-        args=(args, manager, translator, push_to_overlay,
+        args=(args, manager, translator, on_pipeline_change,
               lambda: stopped["v"], lambda: paused["v"]),
         daemon=True,
     )
