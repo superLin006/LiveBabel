@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+# 应用版本(首页页脚显示;发版时与 git tag 同步)
+APP_VERSION = "1.1.1"
+
 # ---- 浅色苹果风色板 ----
 BG = "#F5F5F7"            # 窗口背景(macOS 经典浅灰)
 CARD = "#FFFFFF"          # 卡片/输入框背景(纯白浮于浅灰之上)
@@ -28,7 +31,7 @@ FONT = '"PingFang SC", "Microsoft YaHei", "Segoe UI"'
 # ---- 统一窗口尺寸(苹果风:同一应用内功能窗口尺寸一致,观感规整)----
 # 功能窗口(离线 / 会议)共用同一基准;首页是入口、内容少,单独略小。
 WIN_W, WIN_H = 720, 720        # 功能窗口标准尺寸
-LAUNCHER_W, LAUNCHER_H = 720, 520   # 首页:同宽,稍矮
+LAUNCHER_W, LAUNCHER_H = 720, 478   # 首页:同宽,稍矮(卡片一句话文案后收紧留白)
 
 # 整窗 QSS。各页面 setStyleSheet(STYLESHEET) 即可。
 # 苹果风要点:大圆角(10–12px)、细淡边框、宽松内边距、悬停轻微变色而非描边、

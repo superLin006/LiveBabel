@@ -23,6 +23,20 @@ from livebabel.ui.gui_common import (
 from livebabel.meeting.recorder import MeetingRecorder
 
 
+class _TranscriptList(QListWidget):
+    """空态时在中央画一行灰色提示,有内容后自动消失(避免一块大白板)。"""
+
+    HINT = "点「开始录制」,发言会实时显示在这里"
+
+    def paintEvent(self, e) -> None:
+        super().paintEvent(e)
+        if self.count() == 0:
+            from PySide6.QtGui import QPainter, QColor
+            p = QPainter(self.viewport())
+            p.setPen(QColor(SUBTEXT))
+            p.drawText(self.viewport().rect(), Qt.AlignCenter, self.HINT)
+
+
 def _bubble_widget(speaker: str, ts: str, text: str, is_me: bool, draft: bool = False) -> QWidget:
     """一条聊天气泡(iMessage 风):我→右侧蓝色白字,其他→左侧浅灰深字,
     顶部小字显示 说话人·时间。
@@ -195,7 +209,7 @@ class MeetingWindow(QWidget):
         head_row.addWidget(self.rename_btn)
         root.addLayout(head_row)
 
-        self.transcript_list = QListWidget()
+        self.transcript_list = _TranscriptList()
         self.transcript_list.setObjectName("transcript")
         # 覆盖全局 QListWidget::item 的 padding(气泡自带边距,item 再加 padding
         # 会与 setSizeHint 算出的高度冲突,导致气泡顶部被裁切)
@@ -312,6 +326,11 @@ class MeetingWindow(QWidget):
             self.status.setText("✗ 启动失败")
             return
         self.rec_btn.setText("停止录制")
+        # 录制中按钮变系统红,和闪烁红点呼应,状态一目了然
+        self.rec_btn.setStyleSheet(
+            f"QPushButton {{ background: {DANGER}; border: none; color: white;"
+            f" font-weight: 600; border-radius: 8px; padding: 8px 18px; }}"
+            f"QPushButton:hover {{ background: #E0342B; }}")
         self.src_combo.setEnabled(False)
         self._rec_t0 = time.time()
         self.rec_dot.show()
@@ -322,6 +341,7 @@ class MeetingWindow(QWidget):
         if self.pipeline:
             self.pipeline.stop()
         self.rec_btn.setText("开始录制")
+        self.rec_btn.setStyleSheet("")   # 恢复主按钮蓝(全局 #primary 样式)
         self.src_combo.setEnabled(True)
         self._rec_timer.stop()
         self.rec_dot.hide()

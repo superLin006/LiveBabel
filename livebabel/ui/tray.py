@@ -18,9 +18,10 @@ from livebabel.ui.gui_common import app_icon
 class DictationTray:
     """非 QWidget 的轻量控制器,内部建 QSystemTrayIcon。"""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, on_shutdown=None) -> None:
         self._service = DictationService()
         self._overlay = DictationOverlay()
+        self._on_shutdown = on_shutdown   # 关闭时回调(launcher 同步卡片角标)
 
         self._tray = QSystemTrayIcon(app_icon(), parent)
         self._tray.setToolTip("LiveBabel 语音输入")
@@ -101,3 +102,8 @@ class DictationTray:
             pass
         self._overlay.hide()
         self._tray.hide()
+        if self._on_shutdown is not None:
+            try:
+                self._on_shutdown()
+            except Exception:
+                pass
