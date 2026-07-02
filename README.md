@@ -19,20 +19,21 @@
 
 ## 四种模式
 
-| 模式 | 做什么 |
-|---|---|
-| 🔊 **实时字幕** | 抓电脑正在播放的声音,实时识别+翻译,悬浮窗双语字幕。看直播/网课/外语视频 |
-| ▶️ **离线字幕** | 本地视频生成双语 SRT/ASS,可烧录进视频,支持多文件批量 |
-| 📄 **会议纪要** | 录制转录、**声纹区分说话人**、LLM 起名纠错,一键生成结构化纪要 |
-| 🎙 **语音输入** | 按住 Ctrl+Alt 说话,松开即把文字输入到任意软件的光标处 |
+### 🔊 实时字幕
+抓电脑正在播放的声音,实时识别 + 翻译,悬浮窗双语字幕。看直播 / 网课 / 外语视频。
 
 <p align="center"><img src="docs/screenshot.png" alt="实时双语字幕效果" width="740"></p>
 
+### 📄 会议纪要 & ▶️ 离线字幕
+会议纪要:录制转录、**声纹区分说话人**、LLM 起名纠错,一键生成结构化纪要。
+离线字幕:本地视频生成双语 SRT/ASS,可烧录进视频,支持多文件批量。
+
 <p align="center"><img src="docs/meeting_offline_preview.png" alt="会议纪要 · 离线字幕" width="760"></p>
+
+### 🎙 语音输入
+按住 Ctrl+Alt 说话,松开即把文字输入到任意软件的光标处。
 
 <p align="center"><img src="docs/dictation_preview.png" alt="语音输入:任意软件光标处直接出字" width="620"></p>
-
-<p align="center"><img src="docs/meeting_offline_preview.png" alt="会议纪要 · 离线字幕" width="760"></p>
 
 ## 快速开始
 
