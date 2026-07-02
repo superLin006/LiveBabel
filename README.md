@@ -28,6 +28,12 @@
 
 <p align="center"><img src="docs/screenshot.png" alt="实时双语字幕效果" width="740"></p>
 
+<p align="center"><img src="docs/meeting_offline_preview.png" alt="会议纪要 · 离线字幕" width="760"></p>
+
+<p align="center"><img src="docs/dictation_preview.png" alt="语音输入:任意软件光标处直接出字" width="620"></p>
+
+<p align="center"><img src="docs/meeting_offline_preview.png" alt="会议纪要 · 离线字幕" width="760"></p>
+
 ## 快速开始
 
 **下载即用(推荐)**:去 [Releases](../../releases) 下载打包版,解压双击 exe。首次运行自动下载识别模型(约 570MB,国内镜像加速)。
