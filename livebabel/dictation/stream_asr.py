@@ -56,9 +56,11 @@ class StreamDictationEngine:
                 # 复用实时/会议模式同款引擎:silero-VAD 主动分段 + 流式 zipformer
                 # + 非流式 SenseVoice。这是项目里验证过能独立工作的那个(TwoPassAsr
                 # 靠流式 endpoint 切句,单独用时常不出字)。
+                # provider 与全局策略一致:auto = 有 CUDA 用 GPU,失败自动回退 CPU
+                # (CPU 版打包检测不到 CUDA,自然走 CPU,无需分支差异)。
                 self._asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR,
                                           num_threads=self._num_threads,
-                                          provider="cpu")
+                                          provider="auto")
             return self._asr
 
     def preload(self) -> None:
