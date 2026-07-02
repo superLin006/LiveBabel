@@ -132,11 +132,16 @@ def _segment_windows(audio, sr, vad_model, sherpa_onnx,
 
     def cut_region(a0_samp, region):
         out = []
+        # 门限取「绝对值」与「该区自身音量的 30%」的较小者:笔记本麦远场收音
+        # 整体音量可能很低(实测低于 0.005 的绝对门限,导致所有窗被当静音丢光、
+        # 一段都切不出来),相对门限保证安静录音也能过,同时仍能丢掉区内静音窗。
+        region_rms = float(np.sqrt(np.mean(region ** 2))) if len(region) else 0.0
+        gate = min(rms_gate, max(1e-4, 0.3 * region_rms))
         for st in range(0, max(1, len(region) - win + 1), hop):
             seg = region[st:st + win]
             if len(seg) < int(0.8 * sr):
                 continue
-            if float(np.sqrt(np.mean(seg ** 2))) < rms_gate:
+            if float(np.sqrt(np.mean(seg ** 2))) < gate:
                 continue
             s0 = (a0_samp + st) / sr
             out.append((s0, s0 + len(seg) / sr, seg))
@@ -145,7 +150,7 @@ def _segment_windows(audio, sr, vad_model, sherpa_onnx,
             tail = region[-win:] if len(region) >= win else region
             s0 = (a0_samp + len(region) - len(tail)) / sr
             if not out or s0 > out[-1][0] + 0.3:
-                if float(np.sqrt(np.mean(tail ** 2))) >= rms_gate:
+                if float(np.sqrt(np.mean(tail ** 2))) >= gate:
                     out.append((s0, s0 + len(tail) / sr, tail))
         return out
 
@@ -217,7 +222,8 @@ def diarize(samples, sample_rate: int = 16000, num_speakers: int = -1,
     #    在语音区内按固定窗(2.5s,1.25s hop)切,保证每段足够短、基本单说话人。
     segs = _segment_windows(audio, sample_rate, VAD_MODEL, sherpa_onnx)
     if not segs:
-        return []
+        # 注意保持返回形状和正常路径一致,调用方是按 return_centroids 解包的
+        return ([], {}) if return_centroids else []
 
     # 2) 逐段提 embedding(GPU 失败回退 CPU)
     def _make_ext(p):
