@@ -1,6 +1,10 @@
 # 模型文件太大,不入库,用 download_models.bat 下载
 models/
 
+# TTS 引擎 wheel(魔改版 sherpa-onnx,本地测试用,不入库)
+tts_wheels_win/
+*.whl
+
 # 随项目放置的 ffmpeg 二进制(不入库)
 ffmpeg/
 

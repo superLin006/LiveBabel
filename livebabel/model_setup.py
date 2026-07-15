@@ -18,7 +18,7 @@ import tarfile
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-from livebabel.paths import MODELS_DIR
+from livebabel.paths import CHATTTS_DIR, MODELS_DIR
 
 # GitHub release 直链;下载时按顺序在前面拼镜像前缀,任一成功即用。
 _GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
@@ -27,6 +27,19 @@ _SV = f"{_GH}/speaker-recongition-models"
 
 # 国内加速镜像 → 官方直连(空前缀)兜底。镜像站域名偶尔变,失败会自动落到下一个。
 MIRRORS = ("https://ghfast.top/", "https://gh-proxy.com/", "")
+
+CHATTTS_REPO = os.environ.get(
+    "LIVEBABEL_CHATTTS_REPO", "XHxiehuan/LiveBabel-ChatTTS-ONNX")
+CHATTTS_APPROX_MB = 470
+_CHATTTS_FILES = (
+    "decoder.int8.onnx",
+    "default_speaker.bin",
+    "gpt_decode.int8.onnx",
+    "gpt_prefill.int8.onnx",
+    "homophones_map.json",
+    "vocab.txt",
+    "vocos.int8.onnx",
+)
 
 
 @dataclass
@@ -90,6 +103,39 @@ def missing_items() -> List[ModelItem]:
 
 def models_ready() -> bool:
     return not missing_items()
+
+
+def chattts_ready() -> bool:
+    """返回 ChatTTS 模型目录是否包含全部必需文件。"""
+    return all(os.path.isfile(os.path.join(CHATTTS_DIR, name)) for name in _CHATTTS_FILES)
+
+
+def download_chattts(
+    log: Callable[[str], None],
+    on_progress: Callable[[int, int], None],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    """从公开 ModelScope 仓库下载 ChatTTS 文件到模型目录。"""
+    from modelscope import snapshot_download
+
+    os.makedirs(os.path.dirname(CHATTTS_DIR), exist_ok=True)
+    local_dir = snapshot_download(
+        CHATTTS_REPO,
+        repo_type="model",
+        local_dir=os.path.dirname(CHATTTS_DIR),
+        allow_patterns=[f"chattts-int8/{name}" for name in _CHATTTS_FILES],
+    )
+    if is_cancelled():
+        raise DownloadCancelled()
+    log(f"模型已下载到 {local_dir}")
+    total = len(_CHATTTS_FILES)
+    for index, name in enumerate(_CHATTTS_FILES, 1):
+        if is_cancelled():
+            raise DownloadCancelled()
+        if not os.path.isfile(os.path.join(CHATTTS_DIR, name)):
+            raise RuntimeError(f"下载后缺少文件: {name}")
+        on_progress(index, total)
+    log("ChatTTS 朗读模型已就绪。")
 
 
 # ---- 下载实现 ----
