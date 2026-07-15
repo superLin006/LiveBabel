@@ -31,6 +31,10 @@ MIRRORS = ("https://ghfast.top/", "https://gh-proxy.com/", "")
 CHATTTS_REPO = os.environ.get(
     "LIVEBABEL_CHATTTS_REPO", "XHxiehuan/LiveBabel-ChatTTS-ONNX")
 CHATTTS_APPROX_MB = 470
+_CHATTTS_BASE_URL = os.environ.get(
+    "LIVEBABEL_CHATTTS_URL",
+    "https://modelscope.cn/models/XHxiehuan/LiveBabel-ChatTTS-ONNX/resolve/master",
+)
 _CHATTTS_FILES = (
     "decoder.int8.onnx",
     "default_speaker.bin",
@@ -115,26 +119,46 @@ def download_chattts(
     on_progress: Callable[[int, int], None],
     is_cancelled: Callable[[], bool],
 ) -> None:
-    """从公开 ModelScope 仓库下载 ChatTTS 文件到模型目录。"""
-    from modelscope import snapshot_download
+    """从公开 ModelScope 文件地址下载 ChatTTS 到模型目录。"""
+    import requests
 
-    os.makedirs(os.path.dirname(CHATTTS_DIR), exist_ok=True)
-    local_dir = snapshot_download(
-        CHATTTS_REPO,
-        repo_type="model",
-        local_dir=os.path.dirname(CHATTTS_DIR),
-        allow_patterns=[f"chattts-int8/{name}" for name in _CHATTTS_FILES],
-    )
-    if is_cancelled():
-        raise DownloadCancelled()
-    log(f"模型已下载到 {local_dir}")
+    os.makedirs(CHATTTS_DIR, exist_ok=True)
     total = len(_CHATTTS_FILES)
     for index, name in enumerate(_CHATTTS_FILES, 1):
         if is_cancelled():
             raise DownloadCancelled()
-        if not os.path.isfile(os.path.join(CHATTTS_DIR, name)):
-            raise RuntimeError(f"下载后缺少文件: {name}")
+        url = f"{_CHATTTS_BASE_URL}/chattts-int8/{name}"
+        dest = os.path.join(CHATTTS_DIR, name)
+        part = dest + ".part"
+        have = os.path.getsize(part) if os.path.isfile(part) else 0
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        log(f"[{index}/{total}] 下载 {name} …")
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=60) as response:
+                if have and response.status_code == 200:
+                    have = 0
+                response.raise_for_status()
+                mode = "ab" if have else "wb"
+                with open(part, mode) as output:
+                    for block in response.iter_content(chunk_size=1 << 20):
+                        if is_cancelled():
+                            raise DownloadCancelled()
+                        if block:
+                            output.write(block)
+            os.replace(part, dest)
+        except DownloadCancelled:
+            raise
+        except Exception:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            raise
+        if not os.path.isfile(dest) or os.path.getsize(dest) == 0:
+            raise RuntimeError(f"下载后文件为空: {name}")
         on_progress(index, total)
+    if not chattts_ready():
+        raise RuntimeError("下载后缺少 ChatTTS 模型文件")
     log("ChatTTS 朗读模型已就绪。")
 
 

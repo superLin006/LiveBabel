@@ -8,8 +8,8 @@ sherpa-onnx @ https://huggingface.co/XHxiehuan/LiveBabel-sherpa-onnx-wheels/reso
 sherpa-onnx==1.13.2 ; sys_platform != "win32" or python_version != "3.11"
 numpy
 soundfile
+# requests 同时用于首次点击朗读时从公开 ModelScope 地址按需下载 ChatTTS 模型。
 requests
-modelscope              # 首次点击朗读时按需下载 ChatTTS 模型
 rich
 PySide6
 pyaudiowpatch        # Windows 系统声音采集(WASAPI loopback),仅 Windows 可装
