@@ -32,6 +32,7 @@ TEXT_VOLATILE = "#98989F" # 未定稿草稿(中性灰)
 
 _MARGIN = 26              # 窗口四周留白,给投影留呼吸空间
 _HINT = "正在聆听…"
+_FINALIZING = "正在整理文字…"
 
 
 class _PulseDot(QWidget):
@@ -206,8 +207,17 @@ class DictationOverlay(QWidget):
         """一轮听写开始:立即显示「正在聆听」+ 呼吸红点(即时反馈热键生效)。"""
         self._active = True
         self._hold.stop()
+        self._label.clear()
         self._dot.set_recording()
         self._set_hint()
+        self._reposition()
+        self._show_now()
+
+    def show_finalizing(self) -> None:
+        if not self._active:
+            return
+        self._label.setText(
+            f'<span style="color:{TEXT_VOLATILE};">{html.escape(_FINALIZING)}</span>')
         self._reposition()
         self._show_now()
 

@@ -33,8 +33,12 @@ class StreamDictationEngine:
     浮窗可分色显示。最终文本由 stop() 返回,一次性注入。"""
 
     def __init__(self, on_draft: Optional[Callable[[str, str], None]] = None,
+                 on_error: Optional[Callable[[str], None]] = None,
+                 on_auto_stop: Optional[Callable[[], None]] = None,
                  num_threads: int = 2) -> None:
         self._on_draft = on_draft
+        self._on_error = on_error
+        self._on_auto_stop = on_auto_stop
         self._num_threads = num_threads
         self._asr: Optional[VadTwoPassAsr] = None   # 懒加载 + 复用
         self._asr_lock = threading.Lock()
@@ -43,6 +47,7 @@ class StreamDictationEngine:
         self._src = None             # 当前采集源(stop 时用,start 前为 None)
         self._stop_flag = False
         self._running = False
+        self._state_lock = threading.Lock()
         # 已定稿文本,按语音段 utt_id 存(final 覆盖同段 provisional)
         self._seg_text: dict[int, str] = {}
         self._last_volatile = ""
@@ -70,42 +75,95 @@ class StreamDictationEngine:
     # ---------- 录音 + 识别 ----------
 
     def is_running(self) -> bool:
-        return self._running
+        with self._state_lock:
+            return self._running
 
     def start(self) -> bool:
         """开始一次听写。已在进行中则返回 False(防叠加)。"""
-        if self._running:
-            return False
-        self._stop_flag = False
-        self._running = True
-        self._seg_text = {}
-        self._last_volatile = ""
-        self._last_emit = ("", "")
-        self._thread = threading.Thread(target=self._run, name="dictation-asr", daemon=True)
-        self._thread.start()
+        with self._state_lock:
+            if self._running:
+                return False
+            self._stop_flag = False
+            self._running = True
+            self._seg_text = {}
+            self._last_volatile = ""
+            self._last_emit = ("", "")
+        try:
+            asr = self._ensure_asr()
+            asr.reset()
+        except Exception:
+            with self._state_lock:
+                self._running = False
+            raise
+        thread = threading.Thread(
+            target=self._run, name="dictation-asr", daemon=True)
+        with self._state_lock:
+            self._thread = thread
+        try:
+            thread.start()
+        except Exception:
+            with self._state_lock:
+                self._thread = None
+                self._running = False
+            raise
         return True
 
     def _run(self) -> None:
-        asr = self._ensure_asr()
-        src = MicrophoneSource(chunk_ms=100)
-        self._src = src
-        started = time.monotonic()
+        error_text = ""
+        auto_stopped = False
+        asr = None
+        src = None
         try:
+            asr = self._ensure_asr()
+            src = MicrophoneSource(chunk_ms=100)
+            with self._state_lock:
+                self._src = src
+                stop_requested = self._stop_flag
+            if stop_requested:
+                return
+            started = time.monotonic()
             for frame in src.frames():
-                if self._stop_flag:
+                with self._state_lock:
+                    stop_requested = self._stop_flag
+                if stop_requested:
                     break
                 if time.monotonic() - started > MAX_SECONDS:
+                    with self._state_lock:
+                        self._stop_flag = True
+                    auto_stopped = True
                     break
                 for evt in asr.feed(np.asarray(frame, dtype=np.float32)):
                     self._apply_event(evt)
                 self._emit_draft()
         except Exception as e:  # 采集/识别异常不应崩主程序
-            print(f"[听写] 采集线程异常: {e}")
+            error_text = f"听写失败: {e}"
+        else:
+            with self._state_lock:
+                stop_requested = self._stop_flag
+            if not stop_requested and not auto_stopped:
+                error_text = "麦克风采集已结束，请检查输入设备后重试。"
         finally:
             try:
-                src.stop()
+                if src is not None:
+                    src.stop()
             except Exception:
                 pass
+            with self._state_lock:
+                if self._src is src:
+                    self._src = None
+            if error_text:
+                with self._state_lock:
+                    self._stop_flag = True
+                if self._on_error is not None:
+                    try:
+                        self._on_error(error_text)
+                    except Exception:
+                        pass
+            elif auto_stopped and self._on_auto_stop is not None:
+                try:
+                    self._on_auto_stop()
+                except Exception:
+                    pass
 
     def _apply_event(self, evt) -> None:
         """按事件 kind 更新状态。VadTwoPassAsr 用 utt_id 区分语音段,
@@ -138,22 +196,48 @@ class StreamDictationEngine:
 
     def stop(self) -> str:
         """停止采集,定稿,返回完整最终文本。"""
-        if not self._running:
-            return ""
-        self._stop_flag = True
+        with self._state_lock:
+            if not self._running:
+                return ""
+            self._stop_flag = True
+            src = self._src
+            thread = self._thread
         try:
-            if self._src is not None:
-                self._src.stop()
+            if src is not None:
+                src.stop()
         except Exception:
             pass
-        if self._thread is not None:
-            self._thread.join(timeout=5.0)
+        if thread is not None:
+            thread.join(timeout=5.0)
+            if thread.is_alive():
+                message = "听写线程未能在 5 秒内停止。"
+                with self._state_lock:
+                    self._running = False
+                if self._on_error is not None:
+                    try:
+                        self._on_error(message)
+                    except Exception:
+                        pass
+                return ""
         # 把残留未定稿的最后一句强制定稿(finalize 返回若干 final 事件)
+        fallback = self._last_volatile.strip()
+        finalized_tail = False
         try:
             asr = self._ensure_asr()
             for evt in asr.finalize():
+                if getattr(evt, "kind", "") == "final":
+                    finalized_tail = True
                 self._apply_event(evt)
         except Exception as e:
             print(f"[听写] finalize 异常: {e}")
-        self._running = False
-        return self._committed_text().strip()
+        final_text = self._committed_text().strip()
+        if fallback and not finalized_tail and not final_text.endswith(fallback):
+            final_text += fallback
+        with self._state_lock:
+            self._running = False
+            self._thread = None
+        try:
+            asr.reset()
+        except Exception:
+            pass
+        return final_text

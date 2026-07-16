@@ -39,7 +39,12 @@ SECOND_DIR = res("models", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17")
 VAD_MODEL = res("models", "silero_vad.onnx")
 # 离线 whisper 模型的本地目录(放了就用本地,不重复下载;没放则按模型名自动下载)
 WHISPER_DIR = res("models", "faster-whisper-large-v3-turbo")
+# TTS 朗读:ChatTTS onnx int8 量化版(自魔改 sherpa-onnx 导出,见 sherpa_onnx.OfflineTtsChatTtsModelConfig)
+CHATTTS_DIR = res("models", "chattts-int8")
 HISTORY_DIR = res("history")
+# TTS 朗读:合成结果缓存(按 文本+音色 hash 命名),避免重复朗读同一段文字时
+# 又重新合成一遍。见 livebabel/tts/cache.py
+TTS_CACHE_DIR = res("history", "tts_cache")
 SETTINGS_PATH = res("settings.json")
 # 应用图标:assets/icon.ico(打包时随 datas 收集到 _internal/assets 或 exe 旁)
 ICON_ICO = res("assets", "icon.ico")

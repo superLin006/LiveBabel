@@ -281,7 +281,7 @@ class Launcher(QWidget):
         self._card_dictation = ModeCard(
             "dictation", "语音输入",
             "按住热键说话,文字输入到任意软件。",
-            "全局热键(Ctrl+Alt)说话,实时转成文字,自动输入到当前光标处。\n"
+            "全局热键(右 Ctrl)按住说话,松开结束并输入到当前光标处。\n"
             "任意软件可用,适合聊天 / 写文档 / 填表。再点一次卡片可关闭。",
             self._toggle_dictation,
         )

@@ -1,16 +1,21 @@
 # 实时双语字幕 —— 运行依赖(Windows / macOS)
 # 用法见 setup_windows.bat / run_windows.bat;macOS 见 README 的 mac 章节
-sherpa-onnx==1.13.2
+#
+# Windows CPython 3.11 默认安装 LiveBabel 已验证的 CPU wheel,其中包含
+# ChatTTS 分块 callback 流式合成支持。其他平台或 Python 版本使用官方版本。
+sherpa-onnx @ https://huggingface.co/XHxiehuan/LiveBabel-sherpa-onnx-wheels/resolve/main/wheels/sherpa_onnx-1.12.17-cp311-cp311-win_amd64.whl ; sys_platform == "win32" and python_version == "3.11"
+sherpa-onnx==1.13.2 ; sys_platform != "win32" or python_version != "3.11"
 numpy
 soundfile
+# requests 同时用于首次点击朗读时从公开 ModelScope 地址按需下载 ChatTTS 模型。
 requests
 rich
 PySide6
 
 # 音频采集:按平台自动选(PEP 508 环境标记,pip 会按 OS 跳过不匹配的)
 pyaudiowpatch ; platform_system == "Windows"   # Windows 系统声音(WASAPI loopback)
-sounddevice   ; platform_system == "Darwin"    # macOS 采集(PortAudio;配 BlackHole 抓系统声)
-keyboard ; platform_system == "Windows"   # 语音输入:全局热键 + 模拟粘贴(仅 Windows)
+keyboard ; platform_system == "Windows"        # 语音输入:全局热键 + 模拟粘贴(仅 Windows)
+sounddevice           # macOS 音频采集 + TTS 音频播放(PortAudio,跨平台)
 
 # 离线模式(tools/offline_subtitle.py)。不用离线功能可不装。
 faster-whisper       # 离线识别(large-v3-turbo,99 语言,带时间戳,不依赖 torch)
