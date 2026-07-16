@@ -7,15 +7,13 @@
 #
 # 两版【唯一区别】只有三处(下面用 IS_CPU 开关):
 #   1. GPU 库:GPU 版收集 nvidia-*(cuBLAS/cuDNN/cufft 等)→ 开箱即用;
-#              CPU 版不收 nvidia,并剔除 sherpa 自带的 cuda/tensorrt provider dll → 省 ~2.5G。
+#              CPU 版不收 nvidia,并剔除推理依赖自带的可选 GPU 运行库。
 #   2. runtime hook:CPU 版加 rthook_cpu_only.py(启动设 LIVEBABEL_CPU_ONLY=1,强制走 CPU)。
 #   3. 产物名:GPU=LiveBabel,CPU=LiveBabel-CPU(目录/exe 都带后缀,可共存)。
 # 其余(数据文件 / 排除库 / 隐式导入)两版完全共用,改一处两版同时生效。
 #
 # 必须在 Windows、已激活 subtitle 环境里执行(PyInstaller 不能跨平台)。
-# 产物在 dist\<name>\;再把 models\ 和 ffmpeg\ 拷进去即可整包分发(脚本会自动拷)。
-#   - 模型(~600MB):不打进 exe,放 exe 旁 models\(可换模型、首次离线会自动下 whisper)
-#   - ffmpeg.exe:放 exe 旁 ffmpeg\(本 spec 会把项目根 ffmpeg\ 一起拷进去)
+# 产物在 dist\<name>\；正式发布时只打包 exe + _internal，模型由程序首次按需下载。
 
 import os
 from PyInstaller.utils.hooks import (
@@ -31,8 +29,20 @@ print("[spec] build target =", "CPU-only" if IS_CPU else "GPU", "->", APP_NAME)
 
 # ---- 原生库(.dll/.so / .pyd 依赖)----
 # 这些库带 C 扩展,必须把它们的动态库一起收集,否则运行时崩溃。
-# CPU 版额外剔除 sherpa 自带的 GPU provider dll(262M cuda + tensorrt),用不到。
-_GPU_DLL_SKIP = ("onnxruntime_providers_cuda", "onnxruntime_providers_tensorrt")
+# CPU 版剔除所有可选 GPU 运行库。除了 sherpa/ONNX Runtime provider，
+# CTranslate2 wheel 也可能自带一个 cudnn64_*.dll；CPU 推理不需要它。
+_GPU_DLL_SKIP = (
+    "onnxruntime_providers_cuda",
+    "onnxruntime_providers_tensorrt",
+    "cudnn",
+    "cublas",
+    "cufft",
+    "curand",
+    "cusolver",
+    "cusparse",
+    "nvrtc",
+    "nvjitlink",
+)
 binaries = []
 for pkg in ("sherpa_onnx", "ctranslate2", "av", "onnxruntime"):
     for src, dst in collect_dynamic_libs(pkg):
@@ -63,7 +73,16 @@ if not IS_CPU:
 datas = []
 for pkg in ("faster_whisper", "av", "ctranslate2", "certifi"):
     try:
-        datas += collect_data_files(pkg)
+        pkg_datas = collect_data_files(pkg)
+        if IS_CPU:
+            pkg_datas = [
+                item for item in pkg_datas
+                if not any(
+                    s in os.path.basename(item[0]).lower()
+                    for s in _GPU_DLL_SKIP
+                )
+            ]
+        datas += pkg_datas
     except Exception:
         pass
 # 把项目根的 ffmpeg\ 目录原样拷进分发包(若存在),实现零配置烧录/解码
