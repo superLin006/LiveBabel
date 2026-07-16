@@ -18,7 +18,7 @@ import tarfile
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-from livebabel.paths import MODELS_DIR
+from livebabel.paths import CHATTTS_DIR, MODELS_DIR
 
 # GitHub release 直链;下载时按顺序在前面拼镜像前缀,任一成功即用。
 _GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
@@ -27,6 +27,23 @@ _SV = f"{_GH}/speaker-recongition-models"
 
 # 国内加速镜像 → 官方直连(空前缀)兜底。镜像站域名偶尔变,失败会自动落到下一个。
 MIRRORS = ("https://ghfast.top/", "https://gh-proxy.com/", "")
+
+CHATTTS_REPO = os.environ.get(
+    "LIVEBABEL_CHATTTS_REPO", "XHxiehuan/LiveBabel-ChatTTS-ONNX")
+CHATTTS_APPROX_MB = 470
+_CHATTTS_BASE_URL = os.environ.get(
+    "LIVEBABEL_CHATTTS_URL",
+    "https://modelscope.cn/models/XHxiehuan/LiveBabel-ChatTTS-ONNX/resolve/master",
+)
+_CHATTTS_FILES = (
+    "decoder.int8.onnx",
+    "default_speaker.bin",
+    "gpt_decode.int8.onnx",
+    "gpt_prefill.int8.onnx",
+    "homophones_map.json",
+    "vocab.txt",
+    "vocos.int8.onnx",
+)
 
 
 @dataclass
@@ -90,6 +107,59 @@ def missing_items() -> List[ModelItem]:
 
 def models_ready() -> bool:
     return not missing_items()
+
+
+def chattts_ready() -> bool:
+    """返回 ChatTTS 模型目录是否包含全部必需文件。"""
+    return all(os.path.isfile(os.path.join(CHATTTS_DIR, name)) for name in _CHATTTS_FILES)
+
+
+def download_chattts(
+    log: Callable[[str], None],
+    on_progress: Callable[[int, int], None],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    """从公开 ModelScope 文件地址下载 ChatTTS 到模型目录。"""
+    import requests
+
+    os.makedirs(CHATTTS_DIR, exist_ok=True)
+    total = len(_CHATTTS_FILES)
+    for index, name in enumerate(_CHATTTS_FILES, 1):
+        if is_cancelled():
+            raise DownloadCancelled()
+        url = f"{_CHATTTS_BASE_URL}/chattts-int8/{name}"
+        dest = os.path.join(CHATTTS_DIR, name)
+        part = dest + ".part"
+        have = os.path.getsize(part) if os.path.isfile(part) else 0
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        log(f"[{index}/{total}] 下载 {name} …")
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=60) as response:
+                if have and response.status_code == 200:
+                    have = 0
+                response.raise_for_status()
+                mode = "ab" if have else "wb"
+                with open(part, mode) as output:
+                    for block in response.iter_content(chunk_size=1 << 20):
+                        if is_cancelled():
+                            raise DownloadCancelled()
+                        if block:
+                            output.write(block)
+            os.replace(part, dest)
+        except DownloadCancelled:
+            raise
+        except Exception:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            raise
+        if not os.path.isfile(dest) or os.path.getsize(dest) == 0:
+            raise RuntimeError(f"下载后文件为空: {name}")
+        on_progress(index, total)
+    if not chattts_ready():
+        raise RuntimeError("下载后缺少 ChatTTS 模型文件")
+    log("ChatTTS 朗读模型已就绪。")
 
 
 # ---- 下载实现 ----

@@ -31,7 +31,7 @@
 <p align="center"><img src="docs/meeting_offline_preview.png" alt="会议纪要 · 离线字幕" width="760"></p>
 
 ### 🎙 语音输入
-按住 Ctrl+Alt 说话,松开即把文字输入到任意软件的光标处。
+按住键盘右侧 Ctrl 说话,松开即把文字输入到任意软件的光标处。
 
 <p align="center"><img src="docs/dictation_preview.png" alt="语音输入:任意软件光标处直接出字" width="620"></p>
 

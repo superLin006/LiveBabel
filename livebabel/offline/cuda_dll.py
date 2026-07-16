@@ -15,6 +15,8 @@ import os
 import sys
 
 _done = False
+_dll_handles = []
+_registered_dirs: list[str] = []
 
 
 def _nvidia_bin_dirs() -> list[str]:
@@ -74,15 +76,16 @@ def ensure_cuda_dlls() -> list[str]:
 
     返回成功注册的目录列表(诊断用)。任何异常都吞掉,缺库时 CTranslate2 会自报错。
     """
-    global _done
+    global _done, _dll_handles, _registered_dirs
     if _done or not sys.platform.startswith("win"):
-        return []
+        return list(_registered_dirs)
     _done = True
 
     dirs = _nvidia_bin_dirs()
+    _registered_dirs = list(dirs)
     for d in dirs:
         try:
-            os.add_dll_directory(d)
+            _dll_handles.append(os.add_dll_directory(d))
         except OSError:
             pass
     if dirs:

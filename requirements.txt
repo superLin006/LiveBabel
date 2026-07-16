@@ -1,13 +1,20 @@
 # 实时双语字幕 —— Windows 运行依赖
 # 用法见 setup_windows.bat / run_windows.bat
-sherpa-onnx==1.13.2
+#
+# Windows CPython 3.11 默认安装 LiveBabel 已验证的 CPU wheel,其中包含
+# ChatTTS 分块 callback 流式合成支持。CUDA wheel 不自动安装,需要在已配置
+# CUDA/cuDNN 的环境中手动替换为 wheels/ 目录下的 +cuda 版本。
+sherpa-onnx @ https://huggingface.co/XHxiehuan/LiveBabel-sherpa-onnx-wheels/resolve/main/wheels/sherpa_onnx-1.12.17-cp311-cp311-win_amd64.whl ; sys_platform == "win32" and python_version == "3.11"
+sherpa-onnx==1.13.2 ; sys_platform != "win32" or python_version != "3.11"
 numpy
 soundfile
+# requests 同时用于首次点击朗读时从公开 ModelScope 地址按需下载 ChatTTS 模型。
 requests
 rich
 PySide6
 pyaudiowpatch        # Windows 系统声音采集(WASAPI loopback),仅 Windows 可装
 keyboard ; platform_system == "Windows"   # 语音输入:全局热键 + 模拟粘贴(仅 Windows)
+sounddevice           # TTS 朗读:音频播放(PortAudio,跨平台)
 
 # 离线模式(tools/offline_subtitle.py)。不用离线功能可不装。
 faster-whisper       # 离线识别(large-v3-turbo,99 语言,带时间戳,不依赖 torch)

@@ -20,6 +20,7 @@ from livebabel.ui.gui_common import (
     apply_theme, app_icon, info, error, card, section_label,
     TEXT, SUBTEXT, ACCENT, CARD, BORDER, DANGER, WIN_W, WIN_H,
 )
+from livebabel.ui.reader_bar import ReaderBar
 from livebabel.meeting.recorder import MeetingRecorder
 
 
@@ -92,6 +93,11 @@ class _Bridge(QObject):
     diar_fail = Signal(str)
     diar_progress = Signal(int) # 0-100
     diar_status = Signal(str)   # 阶段文字(如 AI 校正中)
+    read_progress = Signal(int, int)   # 朗读:(第几句下标, 总句数)
+    read_finished = Signal()
+    read_stopped = Signal()
+    read_failed = Signal()
+    read_error = Signal(str)
 
 
 class MeetingWindow(QWidget):
@@ -120,6 +126,14 @@ class MeetingWindow(QWidget):
         self.bridge.diar_progress.connect(
             lambda p: self.status.setText(f"正在分析声纹区分说话人… {p}%"))
         self.bridge.diar_status.connect(lambda s: self.status.setText(s))
+        self.bridge.read_progress.connect(self._on_read_progress)
+        self.bridge.read_finished.connect(self._on_read_finished)
+        self.bridge.read_stopped.connect(self._on_read_stopped)
+        self.bridge.read_failed.connect(self._on_read_failed)
+        self.bridge.read_error.connect(self._on_read_error)
+
+        # 朗读:MinutesReader 懒建(首次点朗读才建,同时后台预加载减少首句延迟)
+        self._reader = None
         # 转录刷新做节流,避免高频信号刷爆 UI
         self._dirty = False
         self._refresh_timer = QTimer(self)
@@ -238,7 +252,15 @@ class MeetingWindow(QWidget):
         self.minutes_btn.setObjectName("primary")
         self.minutes_btn.clicked.connect(self._make_minutes)
         m_head.addWidget(self.minutes_btn)
+        self.read_btn = QPushButton("🔊 朗读")
+        self.read_btn.setEnabled(False)   # 纪要生成后才启用
+        self.read_btn.clicked.connect(self._toggle_read)
+        m_head.addWidget(self.read_btn)
         root.addLayout(m_head)
+
+        self.reader_bar = ReaderBar(
+            on_toggle_pause=self._toggle_read_pause, on_stop=self._stop_read)
+        root.addWidget(self.reader_bar)
 
         self.minutes_view = QTextEdit()
         self.minutes_view.setReadOnly(True)
@@ -610,8 +632,11 @@ class MeetingWindow(QWidget):
         self._minutes_md = md
         self.minutes_view.setMarkdown(md)
         self.export_btn.setEnabled(True)
+        self.read_btn.setEnabled(True)
         self._reset_minutes_btn()
         self.status.setText("✓ 纪要已生成")
+        # 后台预加载 TTS 模型(约 3s),减少用户点「朗读」时的首句等待
+        self._preload_reader()
 
     def _on_minutes_fail(self, msg: str) -> None:
         self.minutes_view.setPlainText("生成失败:\n" + msg)
@@ -651,6 +676,106 @@ class MeetingWindow(QWidget):
     def set_api_key(self, key: str) -> None:
         self._api_key = key
 
+    # ---- 朗读 ----
+
+    def _ensure_reader(self):
+        if self._reader is None:
+            from livebabel.tts.reader import MinutesReader
+            self._reader = MinutesReader()
+            self._reader.on_sentence = lambda i, n: self.bridge.read_progress.emit(i, n)
+            self._reader.on_finished = self.bridge.read_finished.emit
+            self._reader.on_stopped = self.bridge.read_stopped.emit
+            self._reader.on_failed = self.bridge.read_failed.emit
+            self._reader.on_error = self.bridge.read_error.emit
+        return self._reader
+
+    def _preload_reader(self) -> None:
+        """纪要生成后在后台线程预建 TTS 模型,减少用户点朗读时的等待。"""
+        from livebabel import model_setup
+        if not model_setup.chattts_ready():
+            return
+        reader = self._ensure_reader()
+        def work():
+            try:
+                reader.preload()
+            except Exception:
+                pass   # 预加载失败不打扰用户,真正点朗读时会再报一次错
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ensure_chattts_model(self) -> bool:
+        from livebabel import model_setup
+        if model_setup.chattts_ready():
+            return True
+        from PySide6.QtWidgets import QMessageBox
+        answer = QMessageBox.question(
+            self,
+            "下载朗读模型",
+            "检测到朗读模型尚未安装。\n\n"
+            "ChatTTS 本地朗读模型约 470MB，仅用于朗读功能，"
+            "不影响实时识别和会议录音。\n\n是否现在下载？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if answer != QMessageBox.Yes:
+            return False
+        from livebabel.ui.chattts_download_dialog import ChatTtsDownloadDialog
+        dialog = ChatTtsDownloadDialog(self)
+        return dialog.exec() == dialog.Accepted and model_setup.chattts_ready()
+
+    def _toggle_read(self) -> None:
+        if not self._ensure_chattts_model():
+            return
+        reader = self._ensure_reader()
+        if reader.is_running():
+            return
+        if not (self._minutes_md or "").strip():
+            info(self, "暂无纪要", "还没有生成纪要内容。")
+            return
+        self.read_btn.setEnabled(False)
+        self.reader_bar.show_reading()
+        self.status.setText("正在朗读纪要…")
+
+        ok = reader.start(self._minutes_md)
+        if not ok:
+            self.reader_bar.hide_bar()
+            self.read_btn.setEnabled(True)
+            self.status.setText("✗ 朗读出错")
+            error(self, "朗读失败", "没有可朗读的文字内容。")
+
+    def _toggle_read_pause(self) -> None:
+        if self._reader is None or not self._reader.is_running():
+            return
+        self._reader.toggle_pause()
+        self.reader_bar.set_paused(self._reader.is_paused())
+
+    def _stop_read(self) -> None:
+        if self._reader is not None:
+            self._reader.stop()
+        self.reader_bar.hide_bar()
+        self.status.setText("正在停止朗读…")
+
+    def _on_read_progress(self, idx: int, total: int) -> None:
+        self.reader_bar.update_progress(idx, total)
+
+    def _on_read_finished(self) -> None:
+        self.reader_bar.hide_bar()
+        self.read_btn.setEnabled(True)
+        self.status.setText("✓ 朗读完成")
+
+    def _on_read_stopped(self) -> None:
+        self.reader_bar.hide_bar()
+        self.read_btn.setEnabled(True)
+        self.status.setText("已停止朗读")
+
+    def _on_read_failed(self) -> None:
+        self.reader_bar.hide_bar()
+        self.read_btn.setEnabled(True)
+
+    def _on_read_error(self, msg: str) -> None:
+        self.reader_bar.hide_bar()
+        self.status.setText("✗ 朗读出错")
+        error(self, "朗读失败", msg)
+
     def closeEvent(self, e) -> None:
         if self.pipeline and self.pipeline.running:
             from livebabel.ui.gui_common import confirm
@@ -658,6 +783,8 @@ class MeetingWindow(QWidget):
                 e.ignore()
                 return
             self.pipeline.stop()
+        if self._reader is not None:
+            self._reader.stop()
         # 清理临时音频文件
         if self.pipeline is not None:
             try:
