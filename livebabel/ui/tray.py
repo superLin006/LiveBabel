@@ -29,6 +29,7 @@ class DictationTray:
 
         # service 信号 → 主线程更新浮窗
         self._service.started.connect(self._overlay.begin_session)
+        self._service.finalizing.connect(self._overlay.show_finalizing)
         self._service.draftChanged.connect(self._overlay.show_draft)
         self._service.finalText.connect(self._overlay.end_session)
         self._service.error.connect(self._on_error)
@@ -78,7 +79,7 @@ class DictationTray:
                 self._service.enable()
                 self._tray.showMessage(
                     "语音输入已启用",
-                    "按住 Ctrl+Alt 说话,松开即输入;双击 Ctrl+Alt 切换常开。",
+                    "按住右 Ctrl 说话,松开即输入。",
                     QSystemTrayIcon.Information, 4000)
             else:
                 self._service.disable()

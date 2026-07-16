@@ -7,7 +7,7 @@
 
 | 项 | 决策 |
 |---|---|
-| 触发 | PTT（按住说话，松开识别）+ 切换式（双击/长按开关），两者都做 |
+| 触发 | PTT：按住键盘右侧 Ctrl 说话，松开结束并识别 |
 | 注入 | 剪贴板+模拟粘贴（默认）+ 逐字键入（备选开关），两种可选 |
 | 翻译 | 先纯听写，翻译留后（后续复用 `core/translator.py`） |
 | 形态 | 后台常驻 + 系统托盘开关（不必开窗口） |
@@ -81,15 +81,14 @@ def make_injector(mode: str) -> TextInjector:  # mode: "paste"|"type"
 - Windows：剪贴板用 QClipboard，粘贴按键用 `keyboard.send("ctrl+v")`。
 - 恢复剪贴板：注入前存原内容，粘贴后延时恢复（注意时序，粘贴需先完成）。
 
-### hotkey.py — 全局热键状态机
+### hotkey.py — 全局热键
 ```python
 class HotkeyManager:
-    """注册全局热键,区分 PTT 与切换式,回调 on_start/on_stop。"""
-    # PTT: 按下→on_start,松开→on_stop
-    # 切换: 双击(或长按)→翻转录音状态
+    """注册右 Ctrl 按住说话、松开结束的全局热键。"""
+    # 按下→on_start,松开→on_stop
 ```
 - Windows 用 `keyboard.hook` / `keyboard.add_hotkey`。
-- 默认热键：PTT = 按住 `ctrl+alt`；切换 = 双击 `ctrl+alt`（可在托盘里改）。
+- 默认热键：按住键盘右侧 Ctrl 说话,松开结束（可在托盘里改）。
 
 ### service.py — 编排
 ```python
@@ -130,7 +129,7 @@ class DictationService:
 1. 装 keyboard，源码跑 → 按住热键说中文 → 看草稿浮窗是否边说边出字 → 松开后输入框是否出现最终文本。
 2. 对比草稿(zipformer)与最终(SenseVoice)文本，确认两阶段都正常、定稿更准。
 3. 切换注入方式（粘贴 vs 键入）对比中文准确性。
-4. 切换式触发测长段口述（含中途 endpoint 多句拼接）。
+4. 按住右 Ctrl 进行较长口述，确认中途分段结果最终能拼接成完整文本。
 5. 打包后验证热键、浮窗与注入仍工作。
 
 ## 不在本期范围
