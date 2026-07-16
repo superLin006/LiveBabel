@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 # 应用版本(首页页脚显示;发版时与 git tag 同步)
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 # ---- 浅色苹果风色板 ----
 BG = "#F5F5F7"            # 窗口背景(macOS 经典浅灰)
