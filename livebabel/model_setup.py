@@ -3,8 +3,8 @@
 从 ModelScope 统一仓库按需下载,不依赖 modelscope SDK(纯 requests 请求)。
 
 模型分两组:
-  * 核心模型(启动时下载):VAD / zipformer / SenseVoice / 声纹 / whisper
-  * ChatTTS(点击朗读时按需下载):chattts/{decoder,gpt_*,vocos,...}
+  * 核心模型(启动时下载):VAD / zipformer / SenseVoice / 声纹
+  * 按需下载:whisper(离线模式首次) / ChatTTS(朗读时)
 
 模型仓库: https://modelscope.cn/models/XHxiehuan/LiveBabel-Models
 """
@@ -34,6 +34,16 @@ _CHATTTS_FILES = (
     "vocos.int8.onnx",
 )
 
+# whisper 按需(不在核心 MANIFEST,首次离线模式时触发)
+_WHISPER_FILES = (
+    "config.json",
+    "model.bin",
+    "preprocessor_config.json",
+    "tokenizer.json",
+    "vocabulary.json",
+)
+WHISPER_APPROX_MB = 1600
+
 
 @dataclass
 class ModelItem:
@@ -53,7 +63,7 @@ class ModelItem:
         )
 
 
-# ---- 核心模型清单(启动时下载,不含 ChatTTS)----
+# ---- 核心模型清单(启动时下载,不含 whisper/ChatTTS)----
 MANIFEST: List[ModelItem] = [
     ModelItem(
         name="silero VAD(语音分段)",
@@ -94,23 +104,12 @@ MANIFEST: List[ModelItem] = [
 
 
 def missing_items() -> List[ModelItem]:
-    """返回尚未就绪的核心模型项(空列表 = 全齐,不含 ChatTTS)。"""
+    """返回尚未就绪的核心模型项(空列表 = 全齐,不含 whisper/ChatTTS)。"""
     return [m for m in MANIFEST if not m.ready()]
 
 
 def models_ready() -> bool:
     return not missing_items()
-
-
-# ---- whisper 按需(文件名固定,不存在时由程序提示下载)----
-_WHISPER_FILES = (
-    "config.json",
-    "model.bin",
-    "preprocessor_config.json",
-    "tokenizer.json",
-    "vocabulary.json",
-)
-WHISPER_APPROX_MB = 1600
 
 
 def chattts_ready() -> bool:
@@ -124,125 +123,10 @@ def whisper_ready() -> bool:
     return all(os.path.isfile(os.path.join(WHISPER_DIR, name)) for name in _WHISPER_FILES)
 
 
-def download_whisper(
-    log: Callable[[str], None],
-    on_progress: Callable[[int, int], None],
-    is_cancelled: Callable[[], bool],
-) -> None:
-    """从统一仓库下载 whisper 模型到本地(独立按需,不在启动时下载)。"""
-    import requests
-    from livebabel.paths import WHISPER_DIR
-
-    os.makedirs(WHISPER_DIR, exist_ok=True)
-    total = len(_WHISPER_FILES)
-    for index, name in enumerate(_WHISPER_FILES, 1):
-        if is_cancelled():
-            raise DownloadCancelled()
-        url = f"{_MS_BASE}/whisper/{name}"
-        dest = os.path.join(WHISPER_DIR, name)
-        part = dest + ".part"
-        have = os.path.getsize(part) if os.path.isfile(part) else 0
-        headers = {"Range": f"bytes={have}-"} if have else {}
-        log(f"[{index}/{total}] 下载 {name} …")
-        try:
-            with requests.get(url, headers=headers, stream=True, timeout=60) as response:
-                if have and response.status_code == 200:
-                    have = 0
-                response.raise_for_status()
-                mode = "ab" if have else "wb"
-                with open(part, mode) as output:
-                    for block in response.iter_content(chunk_size=1 << 20):
-                        if is_cancelled():
-                            raise DownloadCancelled()
-                        if block:
-                            output.write(block)
-            os.replace(part, dest)
-        except DownloadCancelled:
-            raise
-        except Exception:
-            try:
-                os.remove(part)
-            except OSError:
-                pass
-            raise
-        if not os.path.isfile(dest) or os.path.getsize(dest) == 0:
-            raise RuntimeError(f"下载后文件为空: {name}")
-        on_progress(index, total)
-    if not whisper_ready():
-        raise RuntimeError("下载后缺少 whisper 模型文件")
-    log("whisper 离线转录模型已就绪。")
-
-
-def download_chattts(
-    log: Callable[[str], None],
-    on_progress: Callable[[int, int], None],
-    is_cancelled: Callable[[], bool],
-) -> None:
-    """从统一仓库下载 ChatTTS 模型到本地(独立按需,不在启动时下载)。"""
-    import requests
-
-    os.makedirs(CHATTTS_DIR, exist_ok=True)
-    total = len(_CHATTTS_FILES)
-    for index, name in enumerate(_CHATTTS_FILES, 1):
-        if is_cancelled():
-            raise DownloadCancelled()
-        url = f"{_MS_BASE}/chattts/{name}"
-        dest = os.path.join(CHATTTS_DIR, name)
-        part = dest + ".part"
-        have = os.path.getsize(part) if os.path.isfile(part) else 0
-        headers = {"Range": f"bytes={have}-"} if have else {}
-        log(f"[{index}/{total}] 下载 {name} …")
-        try:
-            with requests.get(url, headers=headers, stream=True, timeout=60) as response:
-                if have and response.status_code == 200:
-                    have = 0
-                response.raise_for_status()
-                mode = "ab" if have else "wb"
-                with open(part, mode) as output:
-                    for block in response.iter_content(chunk_size=1 << 20):
-                        if is_cancelled():
-                            raise DownloadCancelled()
-                        if block:
-                            output.write(block)
-            os.replace(part, dest)
-        except DownloadCancelled:
-            raise
-        except Exception:
-            try:
-                os.remove(part)
-            except OSError:
-                pass
-            raise
-        if not os.path.isfile(dest) or os.path.getsize(dest) == 0:
-            raise RuntimeError(f"下载后文件为空: {name}")
-        on_progress(index, total)
-    if not chattts_ready():
-        raise RuntimeError("下载后缺少 ChatTTS 模型文件")
-    log("ChatTTS 朗读模型已就绪。")
-
-
 # ---- 通用下载实现 ----
 
 class DownloadCancelled(Exception):
     pass
-
-
-def _download_one(
-    item: ModelItem,
-    log: Callable[[str], None],
-    on_bytes: Callable[[int, int], None],
-    is_cancelled: Callable[[], bool],
-) -> None:
-    """下载单个模型项的所有文件。每个文件独立请求,支持断点续传。"""
-
-    total_files = len(item.files)
-    for idx, (remote, local) in enumerate(item.files, 1):
-        url = f"{_MS_BASE}/{remote}"
-        dest = os.path.join(MODELS_DIR, local)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
-
-        log(f"  [{idx}/{total_files}] {os.path.basename(local)} …")
-        _stream_to_file(url, dest, on_bytes, is_cancelled, log)
 
 
 def _stream_to_file(
@@ -261,7 +145,6 @@ def _stream_to_file(
 
     with requests.get(url, headers=headers, stream=True, timeout=30,
                       allow_redirects=True) as r:
-        # 续传请求若返回 200(服务器不支持 Range),从头来
         if have and r.status_code == 200:
             have = 0
         elif have and r.status_code != 206:
@@ -271,7 +154,7 @@ def _stream_to_file(
 
         total = int(r.headers.get("Content-Length", 0))
         if total:
-            total += have  # Content-Length 是剩余量,加上已有的才是总量
+            total += have
 
         mode = "ab" if have else "wb"
         downloaded = have
@@ -285,7 +168,88 @@ def _stream_to_file(
                 downloaded += len(chunk)
                 on_bytes(downloaded, total)
 
-    os.replace(part, dest)  # 完整下完才落到正式文件名
+    os.replace(part, dest)
+
+
+def _download_file_list(
+    files: List[Tuple[str, str]],            # (repo_path, local_dest_path)
+    log: Callable[[str], None],
+    on_progress: Callable[[int, int, int, int], None],
+    is_cancelled: Callable[[], bool],
+    ready_check: Callable[[], bool],
+    done_msg: str,
+) -> None:
+    """下载一组文件,复用 _stream_to_file。失败抛 RuntimeError。
+
+    on_progress(idx, count, downloaded_bytes, total_bytes): 同一下载模式。
+    """
+    total = len(files)
+    for idx, (remote, dest) in enumerate(files, 1):
+        if is_cancelled():
+            raise DownloadCancelled()
+        url = f"{_MS_BASE}/{remote}"
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+        log(f"  [{idx}/{total}] {os.path.basename(dest)} …")
+        _stream_to_file(
+            url, dest,
+            on_bytes=lambda d, t, _i=idx, _n=total: on_progress(_i, _n, d, t),
+            is_cancelled=is_cancelled,
+            log=log,
+        )
+    if not ready_check():
+        raise RuntimeError(f"下载后校验未通过")
+    log(done_msg)
+
+
+# ---- 对外下载接口 ----
+
+def download_chattts(
+    log: Callable[[str], None],
+    on_progress: Callable[[int, int, int, int], None],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    """从统一仓库下载 ChatTTS 模型(字节级进度)。"""
+    files = [
+        (f"chattts/{name}", os.path.join(CHATTTS_DIR, name))
+        for name in _CHATTTS_FILES
+    ]
+    _download_file_list(files, log, on_progress, is_cancelled,
+                        ready_check=chattts_ready,
+                        done_msg="ChatTTS 朗读模型已就绪。")
+
+
+def download_whisper(
+    log: Callable[[str], None],
+    on_progress: Callable[[int, int, int, int], None],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    """从统一仓库下载 whisper 模型(字节级进度)。"""
+    from livebabel.paths import WHISPER_DIR
+    files = [
+        (f"whisper/{name}", os.path.join(WHISPER_DIR, name))
+        for name in _WHISPER_FILES
+    ]
+    _download_file_list(files, log, on_progress, is_cancelled,
+                        ready_check=whisper_ready,
+                        done_msg="whisper 离线转录模型已就绪。")
+
+
+def _download_one(
+    item: ModelItem,
+    log: Callable[[str], None],
+    on_bytes: Callable[[int, int], None],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    """下载单个模型项的所有文件。"""
+    total_files = len(item.files)
+    for idx, (remote, local) in enumerate(item.files, 1):
+        url = f"{_MS_BASE}/{remote}"
+        dest = os.path.join(MODELS_DIR, local)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+        log(f"  [{idx}/{total_files}] {os.path.basename(local)} …")
+        _stream_to_file(url, dest, on_bytes, is_cancelled, log)
 
 
 def download_missing(
@@ -293,11 +257,10 @@ def download_missing(
     on_progress: Callable[[int, int, int, int], None],
     is_cancelled: Callable[[], bool],
 ) -> None:
-    """下载所有缺失的核心模型(不含 ChatTTS)。
+    """下载所有缺失的核心模型(不含 whisper/ChatTTS)。
 
     on_progress(idx, count, downloaded, total): 第 idx/count 个 item,
     当前文件已下/总字节。
-    全部成功正常返回;被取消抛 DownloadCancelled;失败抛 RuntimeError。
     """
     items = missing_items()
     n = len(items)
