@@ -19,7 +19,7 @@ from livebabel.ui.gui_common import CARD, SUBTEXT, apply_theme, app_icon, enable
 
 class _ChatTtsWorker(QObject):
     log = Signal(str)
-    progress = Signal(int, int)
+    progress = Signal(int, int, int, int)   # idx, count, downloaded_bytes, total_bytes
     finished = Signal(bool, str)
 
     def __init__(self) -> None:
@@ -33,7 +33,7 @@ class _ChatTtsWorker(QObject):
         try:
             model_setup.download_chattts(
                 log=self.log.emit,
-                on_progress=lambda done, total: self.progress.emit(done, total),
+                on_progress=lambda i, n, d, t: self.progress.emit(i, n, d, t),
                 is_cancelled=lambda: self._cancel,
             )
             self.finished.emit(True, "")
@@ -129,10 +129,17 @@ class ChatTtsDownloadDialog(QDialog):
     def _append(self, text: str) -> None:
         self.console.appendPlainText(text)
 
-    def _on_progress(self, done: int, total: int) -> None:
-        self.bar.setRange(0, total)
-        self.bar.setValue(done)
-        self.status.setText(f"正在校验模型文件… {done}/{total}")
+    def _on_progress(self, idx: int, count: int, downloaded: int, total: int) -> None:
+        if total > 0:
+            pct = int(downloaded * 100 / total)
+            self.bar.setRange(0, 100)
+            self.bar.setValue(pct)
+            self.status.setText(
+                f"第 {idx}/{count} 个 — {downloaded/1048576:.1f} / {total/1048576:.1f} MB"
+            )
+        else:
+            self.bar.setRange(0, 0)
+            self.status.setText(f"第 {idx}/{count} 个 — 已下载 {downloaded/1048576:.1f} MB")
 
     def _on_finished(self, ok: bool, error_text: str) -> None:
         self._teardown_thread()
@@ -181,7 +188,7 @@ class ChatTtsDownloadDialog(QDialog):
 
 class _WhisperWorker(QObject):
     log = Signal(str)
-    progress = Signal(int, int)
+    progress = Signal(int, int, int, int)   # idx, count, downloaded_bytes, total_bytes
     finished = Signal(bool, str)
 
     def __init__(self) -> None:
@@ -195,7 +202,7 @@ class _WhisperWorker(QObject):
         try:
             model_setup.download_whisper(
                 log=self.log.emit,
-                on_progress=lambda done, total: self.progress.emit(done, total),
+                on_progress=lambda i, n, d, t: self.progress.emit(i, n, d, t),
                 is_cancelled=lambda: self._cancel,
             )
             self.finished.emit(True, "")
@@ -291,10 +298,17 @@ class WhisperDownloadDialog(QDialog):
     def _append(self, text: str) -> None:
         self.console.appendPlainText(text)
 
-    def _on_progress(self, done: int, total: int) -> None:
-        self.bar.setRange(0, total)
-        self.bar.setValue(done)
-        self.status.setText(f"正在校验模型文件… {done}/{total}")
+    def _on_progress(self, idx: int, count: int, downloaded: int, total: int) -> None:
+        if total > 0:
+            pct = int(downloaded * 100 / total)
+            self.bar.setRange(0, 100)
+            self.bar.setValue(pct)
+            self.status.setText(
+                f"第 {idx}/{count} 个 — {downloaded/1048576:.1f} / {total/1048576:.1f} MB"
+            )
+        else:
+            self.bar.setRange(0, 0)
+            self.status.setText(f"第 {idx}/{count} 个 — 已下载 {downloaded/1048576:.1f} MB")
 
     def _on_finished(self, ok: bool, error_text: str) -> None:
         self._teardown_thread()
