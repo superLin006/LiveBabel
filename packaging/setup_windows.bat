@@ -21,9 +21,9 @@ if errorlevel 1 goto err
 
 echo.
 echo [3/3] Checking models ...
-if not exist "models\sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20" (
-    echo   Models NOT found. Copy the WSL "models" folder to project root,
-    echo   or run packaging\download_models.bat
+if not exist "models\zipformer\tokens.txt" (
+    echo   Models NOT found. Run packaging\download_models.bat to download,
+    echo   or copy the models folder to project root.
 ) else (
     echo   Models OK.
 )
