@@ -90,17 +90,6 @@ MANIFEST: List[ModelItem] = [
         files=[("speaker/eres2net_sv_zh.onnx", "speaker/eres2net_sv_zh.onnx")],
         approx_mb=38,
     ),
-    ModelItem(
-        name="faster-whisper large-v3-turbo(离线转录)",
-        files=[
-            ("whisper/config.json", "whisper/config.json"),
-            ("whisper/model.bin", "whisper/model.bin"),
-            ("whisper/preprocessor_config.json", "whisper/preprocessor_config.json"),
-            ("whisper/tokenizer.json", "whisper/tokenizer.json"),
-            ("whisper/vocabulary.json", "whisper/vocabulary.json"),
-        ],
-        approx_mb=1600,
-    ),
 ]
 
 
@@ -113,9 +102,75 @@ def models_ready() -> bool:
     return not missing_items()
 
 
+# ---- whisper 按需(文件名固定,不存在时由程序提示下载)----
+_WHISPER_FILES = (
+    "config.json",
+    "model.bin",
+    "preprocessor_config.json",
+    "tokenizer.json",
+    "vocabulary.json",
+)
+WHISPER_APPROX_MB = 1600
+
+
 def chattts_ready() -> bool:
     """返回 ChatTTS 模型目录是否包含全部必需文件。"""
     return all(os.path.isfile(os.path.join(CHATTTS_DIR, name)) for name in _CHATTTS_FILES)
+
+
+def whisper_ready() -> bool:
+    """返回 whisper 模型目录是否包含全部必需文件。"""
+    from livebabel.paths import WHISPER_DIR
+    return all(os.path.isfile(os.path.join(WHISPER_DIR, name)) for name in _WHISPER_FILES)
+
+
+def download_whisper(
+    log: Callable[[str], None],
+    on_progress: Callable[[int, int], None],
+    is_cancelled: Callable[[], bool],
+) -> None:
+    """从统一仓库下载 whisper 模型到本地(独立按需,不在启动时下载)。"""
+    import requests
+    from livebabel.paths import WHISPER_DIR
+
+    os.makedirs(WHISPER_DIR, exist_ok=True)
+    total = len(_WHISPER_FILES)
+    for index, name in enumerate(_WHISPER_FILES, 1):
+        if is_cancelled():
+            raise DownloadCancelled()
+        url = f"{_MS_BASE}/whisper/{name}"
+        dest = os.path.join(WHISPER_DIR, name)
+        part = dest + ".part"
+        have = os.path.getsize(part) if os.path.isfile(part) else 0
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        log(f"[{index}/{total}] 下载 {name} …")
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=60) as response:
+                if have and response.status_code == 200:
+                    have = 0
+                response.raise_for_status()
+                mode = "ab" if have else "wb"
+                with open(part, mode) as output:
+                    for block in response.iter_content(chunk_size=1 << 20):
+                        if is_cancelled():
+                            raise DownloadCancelled()
+                        if block:
+                            output.write(block)
+            os.replace(part, dest)
+        except DownloadCancelled:
+            raise
+        except Exception:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            raise
+        if not os.path.isfile(dest) or os.path.getsize(dest) == 0:
+            raise RuntimeError(f"下载后文件为空: {name}")
+        on_progress(index, total)
+    if not whisper_ready():
+        raise RuntimeError("下载后缺少 whisper 模型文件")
+    log("whisper 离线转录模型已就绪。")
 
 
 def download_chattts(
