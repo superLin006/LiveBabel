@@ -27,13 +27,12 @@ class SpkSegment:
 
 
 def _emb_model() -> str:
-    from livebabel.paths import MODELS_DIR
+    from livebabel.paths import SPEAKER_CAMPPLUS, SPEAKER_ERES2NET
     # 优先 campplus(实测中文真人区分最好);回退 eres2net base
-    for fn in ("3dspeaker_campplus.onnx", "3dspeaker_eres2net_sv_zh.onnx"):
-        p = os.path.join(MODELS_DIR, fn)
+    for p in (SPEAKER_CAMPPLUS, SPEAKER_ERES2NET):
         if os.path.isfile(p):
             return p
-    return os.path.join(MODELS_DIR, "3dspeaker_campplus.onnx")
+    return SPEAKER_CAMPPLUS
 
 
 def available() -> bool:

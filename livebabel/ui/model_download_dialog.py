@@ -1,6 +1,6 @@
 """首次启动:语音模型下载进度窗。
 
-检测到 models/ 缺核心模型时弹出。在后台线程下载(带镜像回退 + 断点续传),
+检测到 models/ 缺模型时弹出。在后台线程从 ModelScope 下载(支持断点续传),
 进度条 + 日志实时显示。下完返回 Accepted;用户取消 / 关窗返回 Rejected。
 """
 
@@ -84,7 +84,7 @@ class ModelDownloadDialog(QDialog):
         total_mb = sum(m.approx_mb for m in model_setup.missing_items())
         tip = QLabel(
             f"首次使用需下载约 {total_mb}MB 模型(仅此一次,之后开箱即用)。\n"
-            "下载来源为 GitHub,已自动启用国内镜像加速。请保持联网。"
+            "下载来源为 ModelScope 魔搭社区,国内直连高速下载。请保持联网。"
         )
         tip.setWordWrap(True)
         tip.setStyleSheet(f"color: {SUBTEXT}; font-size: 12px;")
