@@ -320,9 +320,9 @@ class Launcher(QWidget):
 
     @staticmethod
     def _whisper_local() -> bool:
-        """本地是否已放了离线 whisper 模型目录(放了就不会触发联网下载)。"""
-        from livebabel.paths import WHISPER_DIR
-        return os.path.isdir(WHISPER_DIR) and bool(os.listdir(WHISPER_DIR))
+        """本地是否已有 whisper 模型(通过统一仓库预下载)。"""
+        from livebabel.model_setup import whisper_ready
+        return whisper_ready()
 
     def _open_history(self) -> None:
         from livebabel.ui.history_window import HistoryWindow
@@ -378,11 +378,17 @@ class Launcher(QWidget):
         # 离线用 faster-whisper(large-v3-turbo)。本地没放模型时首次会自动联网下载
         # (约 1.6GB,下到本机缓存,仅一次)。这里只做一次性友好提示,不阻断。
         if self._offline_win is None and not self._whisper_local():
-            from livebabel.ui.gui_common import info
-            info(self, "离线模式 · 首次需下载模型",
-                 "离线字幕使用 Whisper large-v3-turbo 模型。\n\n"
-                 "首次转写会自动联网下载约 1.6GB 模型(仅一次,之后无需联网),"
-                 "期间界面可能停顿,属正常现象,请耐心等待。")
+            from PySide6.QtWidgets import QMessageBox
+            btn = QMessageBox.question(
+                self, "离线模式 · 需下载模型",
+                "离线字幕使用 Whisper large-v3-turbo 模型(约 1.6GB)。\n\n"
+                "推荐从 ModelScope 下载(国内高速),是否现在下载?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if btn == QMessageBox.Yes:
+                from livebabel.ui.chattts_download_dialog import (
+                    WhisperDownloadDialog as _WhisperDlg)
+                dlg = _WhisperDlg(self)
+                dlg.exec()
         from livebabel.ui.offline_window import OfflineWindow
         if self._offline_win is None:
             self._offline_win = OfflineWindow(api_key=self._effective_key())
