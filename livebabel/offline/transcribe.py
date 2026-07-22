@@ -110,7 +110,7 @@ def transcribe(
 
     from faster_whisper import WhisperModel
 
-    # 优先用本地模型目录(models/faster-whisper-large-v3-turbo),没放才按名字自动下载
+    # 优先用本地模型目录(models/whisper),没放才按名字自动下载
     model_ref = model_size
     try:
         from livebabel.paths import WHISPER_DIR

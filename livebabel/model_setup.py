@@ -1,40 +1,29 @@
 """首次启动自动下载语音模型。
 
-把原先「下载模型.bat」的逻辑搬进程序:检测 models/ 缺哪个 → 流式下载(带镜像回退 +
-重试 + 断点续传)→ tar 包自动解压。GUI 进度窗见 model_download_dialog.py。
+从 ModelScope 统一仓库按需下载,不依赖 modelscope SDK(纯 requests 请求)。
 
-只下三种模式实际会用到的【核心模型】(pyannote-segmentation 代码里没用到,不下;
-离线 whisper 由 faster-whisper 用时自动下,也不在这里):
-  - silero_vad.onnx                                 实时 VAD + 会议分段
-  - sherpa-onnx-streaming-zipformer-...             实时识别
-  - sherpa-onnx-sense-voice-...                     高精度识别
-  - 3dspeaker_eres2net_sv_zh.onnx                   会议声纹区分
+模型分两组:
+  * 核心模型(启动时下载):VAD / zipformer / SenseVoice / 声纹 / whisper
+  * ChatTTS(点击朗读时按需下载):chattts/{decoder,gpt_*,vocos,...}
+
+模型仓库: https://modelscope.cn/models/XHxiehuan/LiveBabel-Models
 """
 
 from __future__ import annotations
 
 import os
-import tarfile
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from livebabel.paths import CHATTTS_DIR, MODELS_DIR
 
-# GitHub release 直链;下载时按顺序在前面拼镜像前缀,任一成功即用。
-_GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
-_ASR = f"{_GH}/asr-models"
-_SV = f"{_GH}/speaker-recongition-models"
+# ModelScope 统一仓库
+_MS_REPO = "XHxiehuan/LiveBabel-Models"
+_MS_BASE = f"https://www.modelscope.cn/api/v1/models/{_MS_REPO}/resolve/master"
 
-# 国内加速镜像 → 官方直连(空前缀)兜底。镜像站域名偶尔变,失败会自动落到下一个。
-MIRRORS = ("https://ghfast.top/", "https://gh-proxy.com/", "")
-
-CHATTTS_REPO = os.environ.get(
-    "LIVEBABEL_CHATTTS_REPO", "XHxiehuan/LiveBabel-ChatTTS-ONNX")
+# ChatTTS 独立按需下载(不在核心 MANIFEST 中,点击朗读时才触发)
+CHATTTS_REPO = os.environ.get("LIVEBABEL_CHATTTS_REPO", _MS_REPO)
 CHATTTS_APPROX_MB = 470
-_CHATTTS_BASE_URL = os.environ.get(
-    "LIVEBABEL_CHATTTS_URL",
-    "https://modelscope.cn/models/XHxiehuan/LiveBabel-ChatTTS-ONNX/resolve/master",
-)
 _CHATTTS_FILES = (
     "decoder.int8.onnx",
     "default_speaker.bin",
@@ -48,60 +37,75 @@ _CHATTTS_FILES = (
 
 @dataclass
 class ModelItem:
-    name: str                       # 给用户看的名字
-    url: str                        # 官方 github 直链
-    # 下载落地的文件名(相对 models/)
-    filename: str
-    # tar.bz2 解压后应出现的目录名;非压缩包则为空
-    extract_dir: str = ""
-    # 判定"已就绪"要存在的相对路径(目录里的关键文件 / 单文件本身)
-    check: List[str] = field(default_factory=list)
+    """一组相关模型文件的下载单元。
+
+    每个 item 包含若干 (远程相对路径, 本地相对路径) 对,
+    ready() 检查所有本地文件是否存在,下载时逐个获取。
+    """
+    name: str                              # 给用户看的名字
+    files: List[Tuple[str, str]] = field(default_factory=list)
     approx_mb: int = 0
 
-    def dest(self) -> str:
-        return os.path.join(MODELS_DIR, self.filename)
-
     def ready(self) -> bool:
-        return all(os.path.exists(os.path.join(MODELS_DIR, c)) for c in self.check)
+        return all(
+            os.path.exists(os.path.join(MODELS_DIR, local))
+            for _, local in self.files
+        )
 
 
-# ---- 核心模型清单(4 项)----
+# ---- 核心模型清单(启动时下载,不含 ChatTTS)----
 MANIFEST: List[ModelItem] = [
     ModelItem(
         name="silero VAD(语音分段)",
-        url=f"{_ASR}/silero_vad.onnx",
-        filename="silero_vad.onnx",
-        check=["silero_vad.onnx"],
-        approx_mb=2,
+        files=[("vad/silero_vad.onnx", "vad/silero_vad.onnx")],
+        approx_mb=1,
     ),
     ModelItem(
         name="流式 zipformer(实时识别)",
-        url=f"{_ASR}/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2",
-        filename="sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2",
-        extract_dir="sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20",
-        check=["sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/tokens.txt"],
-        approx_mb=300,
+        files=[
+            ("zipformer/tokens.txt", "zipformer/tokens.txt"),
+            ("zipformer/encoder-epoch-99-avg-1.onnx", "zipformer/encoder-epoch-99-avg-1.onnx"),
+            ("zipformer/decoder-epoch-99-avg-1.onnx", "zipformer/decoder-epoch-99-avg-1.onnx"),
+            ("zipformer/joiner-epoch-99-avg-1.onnx", "zipformer/joiner-epoch-99-avg-1.onnx"),
+            ("zipformer/bpe.model", "zipformer/bpe.model"),
+            ("zipformer/bpe.vocab", "zipformer/bpe.vocab"),
+        ],
+        approx_mb=341,
     ),
     ModelItem(
         name="SenseVoice(高精度识别)",
-        url=f"{_ASR}/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2",
-        filename="sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2",
-        extract_dir="sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
-        check=["sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt"],
-        approx_mb=230,
+        files=[
+            ("sense-voice/model.int8.onnx", "sense-voice/model.int8.onnx"),
+            ("sense-voice/tokens.txt", "sense-voice/tokens.txt"),
+        ],
+        approx_mb=229,
     ),
     ModelItem(
-        name="声纹模型(会议区分说话人)",
-        url=f"{_SV}/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
-        filename="3dspeaker_eres2net_sv_zh.onnx",
-        check=["3dspeaker_eres2net_sv_zh.onnx"],
-        approx_mb=39,
+        name="声纹 campplus(会议区分说话人, 主力)",
+        files=[("speaker/campplus.onnx", "speaker/campplus.onnx")],
+        approx_mb=27,
+    ),
+    ModelItem(
+        name="声纹 eres2net(会议区分说话人, 回退)",
+        files=[("speaker/eres2net_sv_zh.onnx", "speaker/eres2net_sv_zh.onnx")],
+        approx_mb=38,
+    ),
+    ModelItem(
+        name="faster-whisper large-v3-turbo(离线转录)",
+        files=[
+            ("whisper/config.json", "whisper/config.json"),
+            ("whisper/model.bin", "whisper/model.bin"),
+            ("whisper/preprocessor_config.json", "whisper/preprocessor_config.json"),
+            ("whisper/tokenizer.json", "whisper/tokenizer.json"),
+            ("whisper/vocabulary.json", "whisper/vocabulary.json"),
+        ],
+        approx_mb=1600,
     ),
 ]
 
 
 def missing_items() -> List[ModelItem]:
-    """返回尚未就绪的核心模型项(空列表 = 全齐)。"""
+    """返回尚未就绪的核心模型项(空列表 = 全齐,不含 ChatTTS)。"""
     return [m for m in MANIFEST if not m.ready()]
 
 
@@ -119,7 +123,7 @@ def download_chattts(
     on_progress: Callable[[int, int], None],
     is_cancelled: Callable[[], bool],
 ) -> None:
-    """从公开 ModelScope 文件地址下载 ChatTTS 到模型目录。"""
+    """从统一仓库下载 ChatTTS 模型到本地(独立按需,不在启动时下载)。"""
     import requests
 
     os.makedirs(CHATTTS_DIR, exist_ok=True)
@@ -127,7 +131,7 @@ def download_chattts(
     for index, name in enumerate(_CHATTTS_FILES, 1):
         if is_cancelled():
             raise DownloadCancelled()
-        url = f"{_CHATTTS_BASE_URL}/chattts-int8/{name}"
+        url = f"{_MS_BASE}/chattts/{name}"
         dest = os.path.join(CHATTTS_DIR, name)
         part = dest + ".part"
         have = os.path.getsize(part) if os.path.isfile(part) else 0
@@ -162,7 +166,7 @@ def download_chattts(
     log("ChatTTS 朗读模型已就绪。")
 
 
-# ---- 下载实现 ----
+# ---- 通用下载实现 ----
 
 class DownloadCancelled(Exception):
     pass
@@ -174,50 +178,16 @@ def _download_one(
     on_bytes: Callable[[int, int], None],
     is_cancelled: Callable[[], bool],
 ) -> None:
-    """下载并(如需要)解压单个模型。镜像逐个尝试,失败抛 RuntimeError。
+    """下载单个模型项的所有文件。每个文件独立请求,支持断点续传。"""
 
-    on_bytes(downloaded, total): total 为 0 表示未知。断点续传:已有部分文件则带 Range 续传。
-    """
-    import requests
+    total_files = len(item.files)
+    for idx, (remote, local) in enumerate(item.files, 1):
+        url = f"{_MS_BASE}/{remote}"
+        dest = os.path.join(MODELS_DIR, local)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
 
-    dest = item.dest()
-    os.makedirs(MODELS_DIR, exist_ok=True)
-
-    last_err: Optional[Exception] = None
-    for prefix in MIRRORS:
-        url = prefix + item.url
-        src = "官方 github.com" if not prefix else prefix.split("//")[-1].rstrip("/")
-        log(f"  尝试镜像:{src}")
-        try:
-            _stream_to_file(url, dest, on_bytes, is_cancelled, log)
-            break  # 这个镜像成功
-        except DownloadCancelled:
-            raise
-        except Exception as e:  # 网络/HTTP 错误 → 换下一个镜像
-            last_err = e
-            log(f"    ✗ {type(e).__name__}: {e}")
-            continue
-    else:
-        raise RuntimeError(f"全部镜像都失败:{last_err}")
-
-    # tar.bz2 → 解压
-    if item.extract_dir:
-        log(f"  解压 {item.filename} …")
-        try:
-            with tarfile.open(dest, "r:bz2") as tf:
-                tf.extractall(MODELS_DIR)
-        except Exception as e:
-            try:
-                os.remove(dest)  # 损坏包删掉,下次重下
-            except OSError:
-                pass
-            raise RuntimeError(f"解压失败(包可能不完整):{e}")
-        if not item.ready():
-            raise RuntimeError("解压后仍缺关键文件,包可能不完整")
-        os.remove(dest)  # 解压成功删掉压缩包省空间
-
-    if not item.ready():
-        raise RuntimeError("下载后校验未通过")
+        log(f"  [{idx}/{total_files}] {os.path.basename(local)} …")
+        _stream_to_file(url, dest, on_bytes, is_cancelled, log)
 
 
 def _stream_to_file(
@@ -268,9 +238,10 @@ def download_missing(
     on_progress: Callable[[int, int, int, int], None],
     is_cancelled: Callable[[], bool],
 ) -> None:
-    """下载所有缺失的核心模型。
+    """下载所有缺失的核心模型(不含 ChatTTS)。
 
-    on_progress(idx, count, downloaded, total): 第 idx/count 个,当前文件已下/总字节。
+    on_progress(idx, count, downloaded, total): 第 idx/count 个 item,
+    当前文件已下/总字节。
     全部成功正常返回;被取消抛 DownloadCancelled;失败抛 RuntimeError。
     """
     items = missing_items()
@@ -283,4 +254,4 @@ def download_missing(
             is_cancelled,
         )
         log(f"  ✓ 完成")
-    log("全部核心模型已就绪。")
+    log("全部模型已就绪。")

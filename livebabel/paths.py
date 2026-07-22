@@ -2,6 +2,15 @@
 
 打包后 sys.frozen 为 True,可执行文件目录是 exe 所在目录。模型/历史/设置都放在
 exe 旁边(而不是打进 exe),所以以 exe 目录为基准;源码运行则以本文件目录为基准。
+
+模型目录结构(v1.3+):
+  models/
+    vad/silero_vad.onnx
+    zipformer/{tokens,encoder,decoder,joiner,bpe.*}
+    sense-voice/{model.int8.onnx,tokens.txt}
+    speaker/{campplus.onnx,eres2net_sv_zh.onnx}
+    whisper/{config,model.bin,...}
+    chattts/{decoder,gpt_*,vocos,...}
 """
 
 from __future__ import annotations
@@ -25,13 +34,24 @@ def res(*parts: str) -> str:
 
 
 MODELS_DIR = res("models")
-FIRST_DIR = res("models", "sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20")
-SECOND_DIR = res("models", "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17")
-VAD_MODEL = res("models", "silero_vad.onnx")
-# 离线 whisper 模型的本地目录(放了就用本地,不重复下载;没放则按模型名自动下载)
-WHISPER_DIR = res("models", "faster-whisper-large-v3-turbo")
-# TTS 朗读:ChatTTS onnx int8 量化版(自魔改 sherpa-onnx 导出,见 sherpa_onnx.OfflineTtsChatTtsModelConfig)
-CHATTTS_DIR = res("models", "chattts-int8")
+
+# ---- ASR 模型 ----
+FIRST_DIR = res("models", "zipformer")        # 流式 Pass1
+SECOND_DIR = res("models", "sense-voice")      # 高精度 Pass2
+VAD_MODEL = res("models", "vad", "silero_vad.onnx")
+
+# ---- 声纹模型 ----
+SPEAKER_CAMPPLUS = res("models", "speaker", "campplus.onnx")
+SPEAKER_ERES2NET = res("models", "speaker", "eres2net_sv_zh.onnx")
+
+# ---- 离线 whisper ----
+WHISPER_DIR = res("models", "whisper")
+
+# ---- ChatTTS 语音合成 ----
+# TTS 朗读:ChatTTS onnx int8 量化版(自魔改 sherpa-onnx 导出)
+CHATTTS_DIR = res("models", "chattts")
+
+# ---- 历史 / 设置 / 图标 ----
 HISTORY_DIR = res("history")
 # TTS 朗读:合成结果缓存(按 文本+音色 hash 命名),避免重复朗读同一段文字时
 # 又重新合成一遍。见 livebabel/tts/cache.py
