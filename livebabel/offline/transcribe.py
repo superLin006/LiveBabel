@@ -1,7 +1,7 @@
-"""离线识别:用 faster-whisper(large-v3-turbo)把视频/音频转成带时间戳的句子。
+"""离线识别:用 Qwen3-ASR-0.6B 把视频/音频转成带时间戳的句子。
 
-faster-whisper 基于 CTranslate2,不依赖 torch,速度快、内存省,支持 99 种语言,
-原生输出段级时间戳(每句的起止秒)。离线场景不需要消抖,直接整段识别即可。
+Qwen3-ASR 在 sherpa-onnx 中是离线模型。这里使用同一套 Silero VAD 做句段
+切分，再对每个纯语音段进行 Qwen 识别；CPU 使用 INT8，CUDA 使用 FP16。
 
 输出:list[Sentence],每个含 start/end(秒)和 text(原文)。
 """
@@ -9,11 +9,12 @@ faster-whisper 基于 CTranslate2,不依赖 torch,速度快、内存省,支持 9
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 import tempfile
+import wave
 from dataclasses import dataclass
 from typing import List, Optional
+
+import numpy as np
 
 
 @dataclass
@@ -31,43 +32,22 @@ def detect_device() -> tuple[str, str]:
       * GPU 可用 → ("cuda", "float16")
       * 否则     → ("cpu", "int8")
 
-    探测靠 CTranslate2 自报 CUDA 设备数。Windows 上还需 cuBLAS/cuDNN 的 DLL
-    可加载,否则虽有显卡也跑不起来(报 cublas64_12.dll not found)——所以先注册
-    DLL 目录,有显卡时再粗略检查这些库在不在,缺则当作没 GPU。任何异常都安全回退 CPU。
+    Qwen3-ASR 的推理由 ONNX Runtime 提供，不依赖 CTranslate2。
     """
     # 纯 CPU 版打包用此开关强制 CPU(即使机器有 GPU 也不尝试,避免找没打包的 GPU 库)
     if os.environ.get("LIVEBABEL_CPU_ONLY", "").strip() in ("1", "true", "True"):
         return "cpu", "int8"
     try:
-        import ctranslate2
-        if ctranslate2.get_cuda_device_count() <= 0:
-            return "cpu", "int8"
-        # Windows:确保 cuBLAS/cuDNN DLL 能被找到,否则别误判为可用 GPU
-        if sys.platform.startswith("win"):
-            from livebabel.offline.cuda_dll import ensure_cuda_dlls
-            added = ensure_cuda_dlls()
-            if not _cublas_present(added):
-                return "cpu", "int8"
-        return "cuda", "float16"
+        from livebabel.asr.vad_engine import detect_provider
+        if detect_provider() == "cuda":
+            return "cuda", "float16"
     except Exception:
-        return "cpu", "int8"
-
-
-def _cublas_present(dll_dirs: list[str]) -> bool:
-    """粗略判断 cublas64_12.dll 是否存在(注册目录里或系统里)。仅 Windows 用。"""
-    import glob
-    for d in dll_dirs:
-        if glob.glob(os.path.join(d, "cublas64_*.dll")):
-            return True
-    # 也可能装在 CUDA Toolkit / 系统 PATH 里
-    for p in os.environ.get("PATH", "").split(os.pathsep):
-        if p and glob.glob(os.path.join(p, "cublas64_*.dll")):
-            return True
-    return False
+        pass
+    return "cpu", "int8"
 
 
 def _extract_audio(video_path: str) -> str:
-    """用 ffmpeg 把视频音轨提取成 16k mono wav(faster-whisper 喜欢的格式)到临时文件。"""
+    """用 ffmpeg 把视频音轨提取成 16k mono WAV 到临时文件。"""
     from livebabel.ffmpeg_tool import find_ffmpeg, run_hidden
     ffmpeg = find_ffmpeg()
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -86,60 +66,111 @@ def _extract_audio(video_path: str) -> str:
     return tmp.name
 
 
+def _read_wav(path: str) -> np.ndarray:
+    """读取 _extract_audio 生成的 PCM WAV，返回 float32 [-1, 1]。"""
+    with wave.open(path, "rb") as f:
+        channels = f.getnchannels()
+        width = f.getsampwidth()
+        frames = f.readframes(f.getnframes())
+    if width == 2:
+        audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+    elif width == 4:
+        audio = np.frombuffer(frames, dtype="<i4").astype(np.float32) / 2147483648.0
+    else:
+        raise ValueError(f"不支持的 WAV 位宽: {width * 8} bit")
+    if channels > 1:
+        audio = audio[: len(audio) // channels * channels].reshape(-1, channels).mean(axis=1)
+    return audio
+
+
+def _build_qwen(provider: str, num_threads: int = 2):
+    import sherpa_onnx
+    from livebabel.asr.qwen3_model import has_qwen_cuda_model, qwen_model_paths
+    from livebabel.paths import SECOND_DIR, VAD_MODEL
+
+    if provider == "cuda" and not has_qwen_cuda_model(SECOND_DIR):
+        raise RuntimeError("Qwen3-ASR FP16 模型不存在，无法使用 GPU")
+    conv, encoder, decoder = qwen_model_paths(SECOND_DIR, provider)
+    recognizer = sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
+        conv_frontend=conv, encoder=encoder, decoder=decoder,
+        tokenizer=os.path.join(SECOND_DIR, "tokenizer"),
+        num_threads=num_threads, provider=provider, feature_dim=128,
+        max_total_len=512, max_new_tokens=128,
+    )
+    cfg = sherpa_onnx.VadModelConfig()
+    cfg.silero_vad.model = VAD_MODEL
+    cfg.silero_vad.threshold = 0.5
+    cfg.silero_vad.min_silence_duration = 0.5
+    cfg.silero_vad.min_speech_duration = 0.25
+    cfg.silero_vad.max_speech_duration = 12.0
+    cfg.sample_rate = 16000
+    cfg.num_threads = num_threads
+    cfg.provider = provider
+    vad = sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=30)
+    return recognizer, vad
+
+
+def _decode_qwen(recognizer, audio: np.ndarray) -> str:
+    if len(audio) < 16000 * 0.2:
+        return ""
+    stream = recognizer.create_stream()
+    stream.accept_waveform(16000, audio.astype(np.float32, copy=False))
+    recognizer.decode_stream(stream)
+    return stream.result.text.strip()
+
+
 def transcribe(
     video_path: str,
-    model_size: str = "large-v3-turbo",
+    model_size: str = "qwen3-asr-0.6b",
     language: Optional[str] = None,
     device: str = "cpu",
     compute_type: str = "int8",
     on_progress=None,
 ) -> List[Sentence]:
-    """识别视频,返回带时间戳的句子列表。
+    """用 Qwen3-ASR 识别视频,返回按 VAD 切分且带时间戳的句子列表。
 
-    language: None=自动检测;也可指定如 "en"/"zh"/"ja" 加速并提高准确率。
-    device/compute_type: cpu+int8 最省;有 N 卡可传 device="cuda", compute_type="float16"。
-    on_progress(done_seconds, total_seconds): 可选进度回调。
+    ``model_size`` 和 ``language`` 保留为兼容参数；Qwen 当前自动检测语言。
+    ``device`` 使用 ``cpu`` 或 ``cuda``，分别对应 INT8 与 FP16 图。
     """
-    import os
-
-    # Windows 上先把 cuBLAS/cuDNN 的 DLL 目录注册进搜索路径(GPU 模式必须,否则
-    # 报 "cublas64_12.dll is not found");Linux/WSL 无操作。
     if device == "cuda":
         from livebabel.offline.cuda_dll import ensure_cuda_dlls
         ensure_cuda_dlls()
 
-    from faster_whisper import WhisperModel
-
-    # 优先用本地模型目录(models/whisper),没放才按名字自动下载
-    model_ref = model_size
-    try:
-        from livebabel.paths import WHISPER_DIR
-        if model_size == "large-v3-turbo" and os.path.isdir(WHISPER_DIR):
-            model_ref = WHISPER_DIR
-    except Exception:
-        pass
-
     audio = _extract_audio(video_path)
     try:
-        model = WhisperModel(model_ref, device=device, compute_type=compute_type)
-        segments, info = model.transcribe(
-            audio,
-            language=language,
-            vad_filter=True,                 # 内置 VAD 去静音,断句更干净
-            beam_size=5,
-        )
-        total = info.duration
+        waveform = _read_wav(audio)
+        total = len(waveform) / 16000.0
+        recognizer, vad = _build_qwen(device)
         out: List[Sentence] = []
-        for seg in segments:
-            text = seg.text.strip()
-            if not text:
-                continue
-            out.append(Sentence(start=seg.start, end=seg.end, text=text))
-            if on_progress:
-                on_progress(seg.end, total)
+        chunk_size = 1600  # 100 ms
+
+        def consume() -> None:
+            while not vad.empty():
+                seg = vad.front
+                seg_audio = np.asarray(seg.samples, dtype=np.float32)
+                start = seg.start / 16000.0
+                end = (seg.start + len(seg_audio)) / 16000.0
+                vad.pop()
+                text = _decode_qwen(recognizer, seg_audio)
+                if text:
+                    out.append(Sentence(start=start, end=end, text=text))
+                if on_progress:
+                    on_progress(min(end, total), total)
+
+        for start in range(0, len(waveform), chunk_size):
+            vad.accept_waveform(waveform[start:start + chunk_size])
+            consume()
+        vad.flush()
+        consume()
+        # VAD may reject an unusually short clip; still return its transcript.
+        if not out and len(waveform) >= 16000 * 0.2:
+            text = _decode_qwen(recognizer, waveform)
+            if text:
+                out.append(Sentence(start=0.0, end=total, text=text))
+        if on_progress:
+            on_progress(total, total)
         return out
     finally:
-        import os
         try:
             os.remove(audio)
         except OSError:
@@ -147,10 +178,8 @@ def transcribe(
 
 
 # ---------- GPU 隔离:在子进程里转录 ----------
-# 为什么:faster-whisper(CTranslate2)在 GPU 上加载后,同进程内不会彻底归还 CUDA
-# 上下文/显存(del+gc 实测不够),导致之后实时/会议的 sherpa-onnx 初始化 CUDA 失败
-# (Error 1114)被迫回退 CPU。把转录放独立子进程,进程退出时操作系统强制回收其全部
-# CUDA 资源,主进程后续再开 GPU 就干净了。仅 GPU 路径需要;CPU 路径无此问题。
+# 离线 Qwen 与实时/会议 ASR 共享 ONNX Runtime CUDA。放在独立进程中可在
+# 任务结束后彻底回收显存，避免后续实时模型初始化被旧 session 占用。
 
 def _subprocess_worker(q, kwargs: dict) -> None:
     """子进程入口(必须是模块顶层函数,spawn 模式才能 pickle)。
@@ -172,7 +201,7 @@ def _subprocess_worker(q, kwargs: dict) -> None:
 
 def transcribe_subprocess(
     video_path: str,
-    model_size: str = "large-v3-turbo",
+    model_size: str = "qwen3-asr-0.6b",
     language: Optional[str] = None,
     device: str = "cpu",
     compute_type: str = "int8",
@@ -185,7 +214,6 @@ def transcribe_subprocess(
     RuntimeError("cancelled")。进度通过 on_progress(done, total) 回调(父进程线程内)。
     """
     import multiprocessing as mp
-    import time
 
     ctx = mp.get_context("spawn")   # Windows 必然 spawn;显式指定保证跨平台一致
     q = ctx.Queue()

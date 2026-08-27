@@ -31,12 +31,14 @@ def _nvidia_bin_dirs() -> list[str]:
     dirs: list[str] = []
 
     # 源码模式:import nvidia 找包目录
+    # 注意 nvidia 是 namespace package(__file__ 为 None),必须用 __path__
     try:
         import nvidia
-        base = os.path.dirname(nvidia.__file__)
-        for bin_dir in glob.glob(os.path.join(base, "*", "bin")):
-            if os.path.isdir(bin_dir):
-                dirs.append(bin_dir)
+        base_list = [p for p in getattr(nvidia, "__path__", []) or [] if p]
+        for base in base_list:
+            for bin_dir in glob.glob(os.path.join(base, "*", "bin")):
+                if os.path.isdir(bin_dir):
+                    dirs.append(bin_dir)
     except Exception:
         pass
 

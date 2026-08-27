@@ -19,7 +19,7 @@ import threading
 
 from livebabel.core.commit_manager import CommitManager
 from livebabel.core.translator import Translator
-from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.asr.vad_engine import create_asr
 from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 
@@ -34,7 +34,7 @@ def build_source(args):
 def pipeline_thread(args, manager: CommitManager, translator, on_change,
                     stop_flag, pause_flag):
     """后台:跑音频→ASR→commit→翻译,每次状态变化调用 on_change()。"""
-    asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR)
+    asr = create_asr(FIRST_DIR, SECOND_DIR)
     source = build_source(args)
 
     def handle(evt):
@@ -44,7 +44,7 @@ def pipeline_thread(args, manager: CommitManager, translator, on_change,
                 translator.submit(seg.id, seg.text, quick=True)   # 快速,不带长上下文
         elif evt.kind == "final":
             if evt.replace_seg:
-                # 段结束:用 SenseVoice 整段高精度文本替换该段所有临时子句,并重译
+                # 段结束:用 Qwen3-ASR 整段高精度文本替换该段所有临时子句,并重译
                 seg = manager.replace_utterance(evt.utt_id, evt.text)
             else:
                 seg = manager.add_committed(evt.text, provisional=False, utt_id=evt.utt_id)

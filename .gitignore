@@ -32,6 +32,9 @@ venv/
 overlay_preview.png
 overlay_toolbar.png
 
+# Qwen 导出、基准测试和下载缓存(不进入源码或发布包)
+exp/
+
 # 测试媒体 + 字幕产物(本地生成,不入库)
 test-*.mp4
 test-*.mkv

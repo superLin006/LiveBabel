@@ -3,11 +3,12 @@
 打包后 sys.frozen 为 True,可执行文件目录是 exe 所在目录。模型/历史/设置都放在
 exe 旁边(而不是打进 exe),所以以 exe 目录为基准;源码运行则以本文件目录为基准。
 
-模型目录结构(v1.3+):
+模型目录结构(v2.0+):
   models/
     vad/silero_vad.onnx
     zipformer/{tokens,encoder,decoder,joiner,bpe.*}
-    sense-voice/{model.int8.onnx,tokens.txt}
+    qwen3-asr/{conv_frontend.onnx,encoder.int8.onnx,decoder.int8.onnx,tokenizer/*}
+    (GPU 安装时 encoder/decoder 使用 FP16 及 .data；两种变体不同时保留)
     speaker/{campplus.onnx,eres2net_sv_zh.onnx}
     whisper/{config,model.bin,...}
     chattts/{decoder,gpt_*,vocos,...}
@@ -36,8 +37,11 @@ def res(*parts: str) -> str:
 MODELS_DIR = res("models")
 
 # ---- ASR 模型 ----
-FIRST_DIR = res("models", "zipformer")        # 流式 Pass1
-SECOND_DIR = res("models", "sense-voice")      # 高精度 Pass2
+FIRST_DIR = res("models", "zipformer")         # 原生流式 Pass1
+# 可指向一个独立的 Qwen 导出目录，主要用于开发/诊断；正式安装使用
+# models/qwen3-asr，并由 model_setup 按 CPU/GPU 只下载一个模型变体。
+SECOND_DIR = os.environ.get("LIVEBABEL_QWEN_MODEL_DIR",
+                           res("models", "qwen3-asr"))
 VAD_MODEL = res("models", "vad", "silero_vad.onnx")
 
 # ---- 声纹模型 ----

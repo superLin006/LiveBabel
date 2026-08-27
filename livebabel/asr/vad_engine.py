@@ -3,7 +3,7 @@
 与 asr_engine.py 的区别:不靠流式模型的 endpoint 规则 / 人为静音来切句,
 而是用 silero-VAD 主动检测"语音段"边界。这样:
   * 段边界由真实的语音/静音决定,适配任意视频(连读、长停顿都行)。
-  * Pass2 只对 VAD 切出的纯语音段复识,不含前后静音 → 几乎不产生幻觉碎段。
+  * Pass2 只对 VAD 切出的纯语音段用 Qwen3-ASR 复识,不含前后静音。
   * 流式 Pass1 仍并行跑,负责段内的实时 volatile 显示。
 
 工作方式:
@@ -14,11 +14,14 @@
 from __future__ import annotations
 
 import re
+import os
 from dataclasses import dataclass
 from typing import List, Optional
 
 import numpy as np
 import sherpa_onnx
+
+from livebabel.asr.qwen3_model import has_qwen_cuda_model, qwen_model_paths
 
 SAMPLE_RATE = 16000
 
@@ -47,6 +50,12 @@ def detect_provider() -> str:
     if _os.environ.get("LIVEBABEL_CPU_ONLY", "").strip() in ("1", "true", "True"):
         _cached_provider = "cpu"
         return "cpu"
+    requested = _os.environ.get("LIVEBABEL_ASR_PROVIDER", "auto").strip().lower()
+    if requested not in ("cpu", "cuda", "auto"):
+        requested = "cpu"
+    if requested == "cpu":
+        _cached_provider = "cpu"
+        return "cpu"
     provider = "cpu"
     try:
         # 1) GPU 版 sherpa-onnx 的 lib 目录里才有 onnxruntime_providers_cuda.dll
@@ -63,21 +72,31 @@ def detect_provider() -> str:
 
 
 def _cuda_usable() -> bool:
-    """是否真的有【可用】的 CUDA 设备(避免在没卡的机器上初始化 CUDA 而硬崩溃)。
+    """是否有可供 sherpa-onnx 使用的 CUDA 驱动与运行库。
 
-    复用离线那套判断:CTranslate2 自报 CUDA 设备数 > 0,且 Windows 上 cuBLAS/cuDNN
-    运行时 DLL 能加载。任何异常都当作不可用(回退 CPU)。
+    实时 ASR 不应依赖其他 ASR 框架是否已经安装；Windows 直接
+    加载 NVIDIA driver DLL，并预加载打包的 CUDA/cuDNN DLL。模型 session
+    创建失败时，调用方仍会回退 CPU。
     """
     import sys as _sys
     try:
-        import ctranslate2
-        if ctranslate2.get_cuda_device_count() <= 0:
-            return False
         if _sys.platform.startswith("win"):
-            # 确保 cuBLAS/cuDNN 能被找到/加载,否则虽有卡也会 Error 1114
+            import ctypes
+            ctypes.WinDLL("nvcuda.dll")
             from livebabel.offline.cuda_dll import ensure_cuda_dlls
-            ensure_cuda_dlls()
-        return True
+            dirs = ensure_cuda_dlls()
+            if not dirs:
+                return False
+            ctypes.WinDLL("cublasLt64_12.dll")
+            ctypes.WinDLL("cudnn64_9.dll")
+            return True
+
+        try:
+            import onnxruntime as ort
+            return "CUDAExecutionProvider" in ort.get_available_providers()
+        except Exception:
+            import ctranslate2
+            return ctranslate2.get_cuda_device_count() > 0
     except Exception:
         return False
 
@@ -96,7 +115,7 @@ def _is_garbage(text: str) -> bool:
     return len(s) < 2 or s in _FILLERS
 
 
-# 含连续大写英文字母的片段(SenseVoice 英文输出常全大写)
+# 含连续大写英文字母的片段(Qwen3-ASR 英文输出常全大写)
 _ALLCAP = re.compile(r"[A-Z]{2,}")
 # 每个英文句子的开头字母(句首/. ! ? 后)
 _SENT_START = re.compile(r"(^|[.!?]\s+)([a-z])")
@@ -142,10 +161,10 @@ class AsrEvent:
     text: str = ""
     seg_index: int = -1
     utt_id: int = -1          # 所属语音段(utterance)的 id。同段的 provisional 共享它
-    replace_seg: bool = False  # final 专用:True 表示用本段 SenseVoice 文本替换该段所有 provisional
+    replace_seg: bool = False  # final 专用:True 表示用本段 Qwen3-ASR 文本替换该段所有 provisional
     audio_start: float = -1.0  # final 专用:该语音段在整段音频里的起始秒(供会后按声纹边界拆分归属)
     audio_end: float = -1.0    # final 专用:结束秒
-    tokens: list = None        # final 专用:token 文本列表(SenseVoice)
+    tokens: list = None        # final 专用:token 文本列表(Qwen3-ASR)
     timestamps: list = None    # final 专用:每个 token 的段内相对秒(用于精确按字时间拆分)
 
     # 向后兼容旧字段名
@@ -166,13 +185,16 @@ class VadTwoPassAsr:
                  shared_first=None, shared_second=None) -> None:
         # provider: "auto"(默认,检测到 onnxruntime-gpu 的 CUDA provider 就用 cuda,
         # 否则 cpu)/ "cpu" / "cuda"。装了 onnxruntime-gpu + N 卡即自动 GPU 加速。
-        # shared_first/shared_second: 可传入【已构建的】zipformer/SenseVoice 识别器,
+        # shared_first/shared_second: 可传入【已构建的】zipformer/Qwen3-ASR 识别器,
         #   多个引擎共享同一份模型权重(权重只读、用各自 stream 隔离状态),省内存。
         #   会议双流用 SharedModels 工厂创建后传入,~1GB → ~600MB。
         import sys as _sys
         self.provider = detect_provider() if provider == "auto" else provider
+        if self.provider == "cuda" and not has_qwen_cuda_model(second_dir):
+            print("[asr] Qwen3-ASR 缺少原生浮点 CUDA 模型，使用 CPU int8", file=_sys.stderr)
+            self.provider = "cpu"
         # GPU 模式:先注册/预加载 cuBLAS/cuDNN DLL,否则 sherpa 的 CUDA provider 会因
-        # 找不到 cublasLt64_12.dll 等而加载失败。与离线 faster-whisper 复用同一套逻辑。
+        # 找不到 cublasLt64_12.dll 等而加载失败；与离线 Qwen 复用同一套逻辑。
         if self.provider == "cuda":
             try:
                 from livebabel.offline.cuda_dll import ensure_cuda_dlls
@@ -245,12 +267,17 @@ class VadTwoPassAsr:
         )
 
     def _build_second(self, d: str, nt: int) -> sherpa_onnx.OfflineRecognizer:
-        return sherpa_onnx.OfflineRecognizer.from_sense_voice(
-            model=f"{d}/model.int8.onnx",
-            tokens=f"{d}/tokens.txt",
+        conv, encoder, decoder = qwen_model_paths(d, self.provider)
+        return sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
+            conv_frontend=conv,
+            encoder=encoder,
+            decoder=decoder,
+            tokenizer=f"{d}/tokenizer",
             num_threads=nt,
-            use_itn=True,
             provider=self.provider,
+            feature_dim=128,
+            max_total_len=512,
+            max_new_tokens=128,
         )
 
     def _build_vad(self, nt: int) -> sherpa_onnx.VoiceActivityDetector:
@@ -273,9 +300,9 @@ class VadTwoPassAsr:
         return text
 
     def _refine_timed(self, audio: np.ndarray):
-        """SenseVoice 整段重识,返回 (text, tokens, timestamps)。
+        """Qwen3-ASR 整段重识,返回 (text, tokens, timestamps)。
 
-        tokens/timestamps 是 token 级(SenseVoice 自带),供会后按真实字时间拆分归属。
+        tokens/timestamps 是 token 级(Qwen3-ASR 自带),供会后按真实字时间拆分归属。
         """
         if len(audio) < SAMPLE_RATE * 0.2:
             return "", [], []
@@ -327,7 +354,7 @@ class VadTwoPassAsr:
         # (b) 喂 VAD
         self.vad.accept_waveform(samples.astype(np.float32))
 
-        # (c) VAD 关闭语音段 → 最终定稿(Pass2 SenseVoice 高精度,整段)
+        # (c) VAD 关闭语音段 → 最终定稿(Pass2 Qwen3-ASR 高精度,整段)
         seg_closed = False
         while not self.vad.empty():
             seg = self.vad.front
@@ -335,7 +362,7 @@ class VadTwoPassAsr:
             a_start = seg.start / SAMPLE_RATE                       # 段在整段音频里的起止秒
             a_end = (seg.start + len(seg_audio)) / SAMPLE_RATE
             self.vad.pop()
-            refined, toks, ts = self._refine_timed(seg_audio)   # SenseVoice 整段重识 + token 时间戳
+            refined, toks, ts = self._refine_timed(seg_audio)   # Qwen3-ASR 整段重识 + token 时间戳
             if refined and not _is_garbage(refined):
                 # token 时间戳是段内相对秒,转成整段音频的绝对秒(加 a_start)
                 abs_ts = [a_start + x for x in ts]
@@ -409,15 +436,26 @@ class VadTwoPassAsr:
         prefix = prefix.strip()
         if prefix and text.startswith(prefix):
             return text[len(prefix):].strip()
-        # SenseVoice 和流式模型措辞可能不完全一致,对不齐就按字数粗略截尾
+        # Qwen3-ASR 和流式模型措辞可能不完全一致,对不齐就按字数粗略截尾
         if prefix and len(text) > len(prefix):
             return text[len(prefix):].strip()
         return text
 
 
+def create_asr(first_dir: str, second_dir: str, num_threads: int = 2,
+               provisional: bool = True,
+               prov_max_seconds: float = PROVISIONAL_MAX_SECONDS,
+               provider: str = "auto", shared_first=None, shared_second=None):
+    """创建生产用 Zipformer + Qwen3-ASR 两阶段识别器。"""
+    return VadTwoPassAsr(
+        first_dir, second_dir, num_threads=num_threads,
+        provisional=provisional, prov_max_seconds=prov_max_seconds,
+        provider=provider, shared_first=shared_first, shared_second=shared_second)
+
+
 def build_shared_models(first_dir: str, second_dir: str, num_threads: int = 2,
                         provider: str = "auto"):
-    """构建一份可被多个 VadTwoPassAsr 共享的 zipformer + SenseVoice 识别器。
+    """构建一份可被多个 VadTwoPassAsr 共享的 zipformer + Qwen3-ASR 识别器。
 
     会议双流用:两路引擎共享这一份模型权重(各自再建独立 vad/stream),
     内存从 ~1GB 降到 ~600MB。返回 (first, second, provider)。
@@ -425,6 +463,9 @@ def build_shared_models(first_dir: str, second_dir: str, num_threads: int = 2,
     """
     import sys as _sys
     prov = detect_provider() if provider == "auto" else provider
+    if prov == "cuda" and not has_qwen_cuda_model(second_dir):
+        print("[asr] 会议 Qwen3-ASR 缺少原生浮点 CUDA 模型，使用 CPU int8", file=_sys.stderr)
+        prov = "cpu"
     if prov == "cuda":
         try:
             from livebabel.offline.cuda_dll import ensure_cuda_dlls
