@@ -1,4 +1,4 @@
-# LiveBabel v1.4.0 发布说明
+# LiveBabel v1.5.0 发布说明
 
 ## 主要变更
 
@@ -13,19 +13,19 @@
 
 ### 🛠 修复与改进
 - 补上此前遗漏的 campplus 主力声纹模型下载
-- whisper 离线转录模型改为按需询问下载（不占用启动下载量）
+- 离线转录统一使用核心 Qwen3-ASR，不再额外下载 Whisper
 - ChatTTS 朗读模型对接统一仓库
 - 修复 download_models.bat 使其实际执行下载
 
 ### 📦 下载
 
-`LiveBabel-CPU-v1.4.0-win64.zip` (~209MB) — 任何电脑可用，无需显卡。
+`LiveBabel-CPU-v1.5.0-win64.zip` — 任何电脑可用，无需显卡。
 
 ### 🚀 使用方法
 
 1. 解压到任意目录
 2. 双击 `LiveBabel-CPU.exe`
-3. 首次启动自动从 ModelScope 下载核心模型（~636MB，仅一次）
+3. 首次启动自动从 ModelScope 下载当前后端所需的核心模型（仅一次）
 4. 设置 DeepSeek API Key 即可使用翻译功能
 
 ### ⚠️ 已知问题
