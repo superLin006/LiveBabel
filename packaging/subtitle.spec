@@ -43,7 +43,7 @@ _GPU_DLL_SKIP = (
     "nvjitlink",
 )
 binaries = []
-for pkg in ("sherpa_onnx", "onnxruntime"):
+for pkg in ("sherpa_onnx",):
     for src, dst in collect_dynamic_libs(pkg):
         if IS_CPU and any(s in os.path.basename(src).lower() for s in _GPU_DLL_SKIP):
             continue
@@ -102,7 +102,7 @@ hiddenimports = (
     collect_submodules("sherpa_onnx")
     + collect_submodules("livebabel")
     + ["app", "soundfile", "numpy", "requests", "certifi",
-       "onnxruntime", "pyaudiowpatch", "keyboard"]
+       "pyaudiowpatch", "keyboard"]
 )
 
 # CPU 版:启动即强制 CPU(避免在有 N 卡机器上尝试加载没打包的 GPU dll)
