@@ -7,8 +7,8 @@
 (见 build_mac.sh,会自动做)。
 
 与 Windows(PyInstaller subtitle.spec)的对应关系:
-  * 数据文件(faster_whisper 的 silero_vad、av/ctranslate2 数据):用 collect_data_files 收
-  * 隐式导入 / 包:sherpa_onnx / ctranslate2 / livebabel 全收
+  * 数据文件:仅收项目资源(ffmpeg/assets)，VAD/Qwen 模型由程序从 ModelScope 下载
+  * 隐式导入 / 包:sherpa_onnx / livebabel 全收
   * 排除大库(torch/transformers/scipy 等):py2app 的 excludes
   * GPU 库:macOS 不需要(无 CUDA),sounddevice 走 CPU + CoreML
   * 麦克风权限:plist 里声明 NSMicrophoneUsageDescription(否则录音直接崩)
@@ -26,21 +26,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _collect_data():
-    """收集 faster_whisper / av / ctranslate2 的数据文件 + 项目 ffmpeg/ + assets。"""
+    """收集项目 ffmpeg/ + assets；ASR 模型运行时从 ModelScope 下载。"""
     data = []
-    try:
-        from PyInstaller.utils.hooks import collect_data_files  # 若装了 pyinstaller 复用
-        for pkg in ("faster_whisper", "av", "ctranslate2"):
-            try:
-                # collect_data_files 返回 [(src, dest_dir)],py2app 要 (dest_dir, [src...])
-                by_dir = {}
-                for src, dst in collect_data_files(pkg):
-                    by_dir.setdefault(dst, []).append(src)
-                data += list(by_dir.items())
-            except Exception:
-                pass
-    except Exception:
-        pass
     # 项目根 ffmpeg/(若存在,随包,实现零配置烧录)
     ff = os.path.join(ROOT, "ffmpeg")
     if os.path.isdir(ff):
@@ -63,11 +50,10 @@ ICON = _icns if os.path.isfile(_icns) else None
 OPTIONS = {
     "argv_emulation": False,
     "packages": [
-        "livebabel", "sherpa_onnx", "ctranslate2", "faster_whisper",
-        "av", "sounddevice", "numpy", "PySide6",
+        "livebabel", "sherpa_onnx", "sounddevice", "numpy", "PySide6",
     ],
     "includes": [
-        "app", "soundfile", "requests", "onnxruntime", "_sounddevice",
+        "app", "soundfile", "requests", "_sounddevice",
     ],
     "excludes": [
         "tkinter", "matplotlib", "pyaudiowpatch",       # pyaudiowpatch 仅 Windows
@@ -85,8 +71,8 @@ OPTIONS = {
         "CFBundleName": "LiveBabel",
         "CFBundleDisplayName": "LiveBabel",
         "CFBundleIdentifier": "com.livebabel.app",
-        "CFBundleVersion": "1.0.0",
-        "CFBundleShortVersionString": "1.0.0",
+        "CFBundleVersion": "1.5.0",
+        "CFBundleShortVersionString": "1.5.0",
         "NSHighResolutionCapable": True,
         # 麦克风权限说明(会议模式录麦克风必需,缺了 macOS 会直接 kill 进程)
         "NSMicrophoneUsageDescription":
