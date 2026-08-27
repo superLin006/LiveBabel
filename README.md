@@ -7,14 +7,14 @@
 <p align="center">实时字幕 · 离线字幕 · 会议纪要 · 语音输入 · 文本朗读</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-v1.3.0-0A84FF" alt="release">
+  <img src="https://img.shields.io/badge/release-v1.5.0-0A84FF" alt="release">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue" alt="platform">
   <img src="https://img.shields.io/badge/python-3.11-blue" alt="python">
   <img src="https://img.shields.io/badge/GUI-PySide6-41cd52" alt="pyside6">
 </p>
 
-本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译与纪要调用 DeepSeek API。当前推荐的 Windows CPU 发布版无需 NVIDIA 显卡;GPU 完整版可使用 N 卡加速识别。
+本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译与纪要调用 DeepSeek API。Windows CPU 发布版无需 NVIDIA 显卡；GPU 环境可使用 N 卡加速 Qwen3-ASR。
 
 <p align="center"><img src="docs/launcher_preview.png" alt="主页" width="620"></p>
 
@@ -43,9 +43,9 @@
 
 **下载即用(推荐)**:
 
-- **Windows 10 / 11 64 位 CPU 版** — [LiveBabel-CPU-v1.3.0-win64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.3.0/LiveBabel-CPU-v1.3.0-win64.zip),无需 NVIDIA 显卡。
-- **macOS Apple Silicon (arm64)** — [LiveBabel-mac-arm64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.3.0-mac/LiveBabel-mac-arm64.zip)。
-- 完整版本说明见 [LiveBabel v1.3.0 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.3.0)。
+- **Windows 10 / 11 64 位 CPU 版** — [LiveBabel-CPU-v1.5.0-win64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.5.0/LiveBabel-CPU-v1.5.0-win64.zip),无需 NVIDIA 显卡。
+- **macOS Apple Silicon (arm64)** — 当前使用 `macos` 分支源码运行，暂未发布 v1.5.0 独立安装包。
+- 完整版本说明见 [LiveBabel v1.5.0 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.5.0)。
 
 下载后解压并运行程序。首次启动会下载必要的语音识别模型(按 CPU/GPU 约 1.0–1.9 GB,国内镜像加速);首次使用朗读时才会另行询问是否下载约 470 MB 的 ChatTTS 模型。模型、个人设置和历史记录均不包含在发布压缩包中。
 
@@ -138,12 +138,12 @@ flowchart LR
 
 - `silero_vad.onnx` — 语音活动检测
 - `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` — 流式 ASR(中英)
-- Qwen3-ASR-0.6B ONNX — 非流式高精度 ASR（CPU INT8 / NVIDIA GPU FP16 按后端二选一）
+- `qwen3-asr/` — Qwen3-ASR-0.6B 高精度 ASR（CPU INT8 / NVIDIA GPU FP16，单台设备只下载一套）
 - 3D-Speaker campplus / eres2net — 会议声纹区分
 
 离线模式复用核心 Qwen3-ASR-0.6B 模型，CPU 使用 INT8，NVIDIA GPU 使用 FP16；不会额外下载 Whisper 模型。
 
-ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时会提示是否下载约 470 MB 到 `models/chattts-int8/`。
+ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时会提示是否下载约 470 MB 到 `models/chattts/`。
 </details>
 
 ## 路线图
