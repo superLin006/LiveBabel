@@ -2,15 +2,27 @@
 
 LiveBabel 的本地语音模型仓库，供实时字幕、语音输入、会议记录和离线字幕使用。
 
-## ASR 模型
+## 模型清单
 
-- `zipformer/`：实时流式草稿识别（Pass1）。
-- `qwen3-asr/`：Qwen3-ASR-0.6B 高精度识别（Pass2 和离线模式）。
-  - 公共文件：`conv_frontend.onnx`、`tokenizer/`。
-  - CPU：`encoder.int8.onnx`、`decoder.int8.onnx`。
-  - NVIDIA GPU：`encoder.fp16.onnx`、`decoder.fp16.onnx` 及对应 `.data` 文件。
-  - CPU/GPU 变体按运行后端二选一下载，远端同时保存两种变体，单台设备只保留实际使用的一套。
-- `vad/`：Silero VAD 语音分段。
-- `speaker/`：会议说话人识别模型。
+| 目录 | 模型/用途 | v1.5 状态 | 约占用 |
+|---|---|---|---:|
+| `vad/` | Silero VAD 语音分段 | 当前使用 | 1 MB |
+| `zipformer/` | 流式 Zipformer 实时草稿（Pass1） | 当前使用 | 341 MB |
+| `qwen3-asr/` | Qwen3-ASR-0.6B 高精度识别（Pass2、离线） | 当前使用 | CPU INT8 约 1.0 GB；GPU FP16 约 1.8 GB |
+| `speaker/` | campplus / eres2net 会议说话人识别 | 当前使用 | 65 MB |
+| `chattts/` | ChatTTS 本地朗读 | 按需下载 | 470 MB |
+| `sense-voice/` | SenseVoice 非流式识别 | 旧版本兼容保留 | 229 MB |
+| `whisper/` | Whisper large-v3-turbo 离线识别 | 旧版本兼容保留 | 1.6 GB |
 
-LiveBabel 的默认实时链路是 Zipformer 流式草稿 + Qwen3-ASR 最终修正；离线字幕直接使用 Qwen3-ASR。模型文件由程序从本仓库按需下载。
+### Qwen3-ASR 文件
+
+- 公共文件：`conv_frontend.onnx`、`tokenizer/`。
+- CPU：`encoder.int8.onnx`、`decoder.int8.onnx`。
+- NVIDIA GPU：`encoder.fp16.onnx`、`decoder.fp16.onnx` 及对应 `.data` 文件。
+- 远端同时保存 INT8 和 FP16，程序按运行后端只下载/保留实际使用的一套。
+
+### 旧版本兼容
+
+`sense-voice/` 和 `whisper/` 不会从仓库删除。v1.5 默认不再使用它们，但旧版 LiveBabel 仍会按原路径读取这些文件，因此旧版本用户可以继续运行。模型文件由程序从本仓库按需下载。
+
+v1.5 默认实时链路是 Zipformer 流式草稿 + Qwen3-ASR 最终修正；离线字幕直接使用 Qwen3-ASR。
