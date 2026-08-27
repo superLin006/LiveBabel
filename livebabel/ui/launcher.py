@@ -318,12 +318,6 @@ class Launcher(QWidget):
         root.addSpacing(4)
         root.addWidget(ver)
 
-    @staticmethod
-    def _whisper_local() -> bool:
-        """本地是否已有 whisper 模型(通过统一仓库预下载)。"""
-        from livebabel.model_setup import whisper_ready
-        return whisper_ready()
-
     def _open_history(self) -> None:
         from livebabel.ui.history_window import HistoryWindow
         HistoryWindow(self).exec()
@@ -375,22 +369,8 @@ class Launcher(QWidget):
     # ---- 模式 ----
 
     def _open_offline(self) -> None:
-        # 离线用 faster-whisper(large-v3-turbo),本地没有时询问下载,
-        # 用户拒绝或下载失败则不进入。
-        if not self._whisper_local():
-            from PySide6.QtWidgets import QMessageBox
-            btn = QMessageBox.question(
-                self, "离线模式 · 需下载模型",
-                "离线字幕使用 Whisper large-v3-turbo 模型(约 1.6GB)。\n\n"
-                "推荐从 ModelScope 下载(国内高速),是否现在下载?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-            if btn != QMessageBox.Yes:
-                return
-            from livebabel.ui.chattts_download_dialog import (
-                WhisperDownloadDialog as _WhisperDlg)
-            dlg = _WhisperDlg(self)
-            if dlg.exec() != dlg.Accepted:
-                return
+        # 离线识别复用核心 Qwen3-ASR 模型；模型在进入主页前已按当前
+        # CPU/GPU 后端完成下载和变体清理，无需再单独下载 Whisper。
         from livebabel.ui.offline_window import OfflineWindow
         if self._offline_win is None:
             self._offline_win = OfflineWindow(api_key=self._effective_key())
@@ -573,7 +553,10 @@ def main() -> None:
     apply_app_theme(app)            # 全局深色调色板,消除白边/白底弹窗
     app.setWindowIcon(app_icon())   # 任务栏/弹窗/所有窗口默认图标
     # 首次使用:核心模型缺失则先弹下载窗(下完才进主页;取消则退出)
-    from livebabel.model_setup import models_ready
+    from livebabel.model_setup import cleanup_inactive_qwen_variant, models_ready
+    # Qwen INT8/FP16 是互斥部署：只保留当前推理后端会使用的一套权重。
+    # 公共 frontend/tokenizer 不受影响。
+    cleanup_inactive_qwen_variant()
     if not models_ready():
         from livebabel.ui.model_download_dialog import ModelDownloadDialog
         dlg = ModelDownloadDialog()

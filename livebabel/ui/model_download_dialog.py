@@ -81,7 +81,8 @@ class ModelDownloadDialog(QDialog):
         title = QLabel("正在下载语音识别模型")
         title.setObjectName("section")
         title.setStyleSheet("font-size: 17px; font-weight: 600;")
-        total_mb = sum(m.approx_mb for m in model_setup.missing_items())
+        provider = model_setup.active_asr_provider()
+        total_mb = sum(m.approx_for(provider) for m in model_setup.missing_items(provider))
         tip = QLabel(
             f"首次使用需下载约 {total_mb}MB 模型(仅此一次,之后开箱即用)。\n"
             "下载来源为 ModelScope 魔搭社区,国内直连高速下载。请保持联网。"

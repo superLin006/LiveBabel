@@ -17,5 +17,4 @@ pyaudiowpatch ; platform_system == "Windows"   # Windows 系统声音(WASAPI loo
 keyboard ; platform_system == "Windows"        # 语音输入:全局热键 + 模拟粘贴(仅 Windows)
 sounddevice           # macOS 音频采集 + TTS 音频播放(PortAudio,跨平台)
 
-# 离线模式(tools/offline_subtitle.py)。不用离线功能可不装。
-faster-whisper       # 离线识别(large-v3-turbo,99 语言,带时间戳,不依赖 torch)
+# 离线字幕与实时/会议共用 sherpa-onnx 的 Qwen3-ASR，无额外 ASR 运行时依赖。

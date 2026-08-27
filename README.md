@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/GUI-PySide6-41cd52" alt="pyside6">
 </p>
 
-本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) / [faster-whisper](https://github.com/SYSTRAN/faster-whisper)),只有翻译与纪要调用 DeepSeek API。当前推荐的 Windows CPU 发布版无需 NVIDIA 显卡;GPU 完整版可使用 N 卡加速识别。
+本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译与纪要调用 DeepSeek API。当前推荐的 Windows CPU 发布版无需 NVIDIA 显卡;GPU 完整版可使用 N 卡加速识别。
 
 <p align="center"><img src="docs/launcher_preview.png" alt="主页" width="620"></p>
 
@@ -47,7 +47,7 @@
 - **macOS Apple Silicon (arm64)** — [LiveBabel-mac-arm64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.3.0-mac/LiveBabel-mac-arm64.zip)。
 - 完整版本说明见 [LiveBabel v1.3.0 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.3.0)。
 
-下载后解压并运行程序。首次启动会下载必要的语音识别模型(约 570 MB,国内镜像加速);首次使用朗读时才会另行询问是否下载约 470 MB 的 ChatTTS 模型。模型、个人设置和历史记录均不包含在发布压缩包中。
+下载后解压并运行程序。首次启动会下载必要的语音识别模型(按 CPU/GPU 约 1.0–1.9 GB,国内镜像加速);首次使用朗读时才会另行询问是否下载约 470 MB 的 ChatTTS 模型。模型、个人设置和历史记录均不包含在发布压缩包中。
 
 **源码运行**:
 
@@ -85,7 +85,7 @@ python tools/offline_subtitle.py 视频.mp4 --lang 中文 --burn    # 命令行�
 ## 特点
 
 - **字幕不抖**:volatile / provisional / committed 三态机,只翻译已定稿句,从根上消除流式 ASR 的反复改写。
-- **低延迟 + 高精度**:两遍识别 —— 流式 zipformer 先出草稿抢延迟,句末 SenseVoice 整段高精度替换。
+- **低延迟 + 高精度**:两遍识别 —— 流式 Zipformer 先出草稿抢延迟,句末 Qwen3-ASR-0.6B 整段高精度替换。
 - **说话人区分**:线上会议按物理双流(我/远端)天然分开;线下单麦克风靠**声纹聚类**分出发言人,LLM 起名纠错,声纹库下次自动认人。
 - **历史回看**:实时/会议自动存 `.srt` / `.txt`,主页「历史记录」可回看、删除。
 - **多语种**:中 ⇄ 英 / 日 / 韩,运行中可切换。
@@ -111,13 +111,13 @@ packaging/build_mac.sh         # macOS .app(或推 v*-mac tag 触发 GitHub Acti
 |---|---|
 | volatile(未定稿) | 正在说的句子,会变。只显示原文,不翻译 |
 | provisional(临时) | 段未结束先按子句翻一版,琥珀色,降低长句延迟 |
-| committed(最终) | 句子结束,SenseVoice 整段重识+重译,青色锁定 |
+| committed(最终) | 句子结束,Qwen3-ASR 整段重识+重译,青色锁定 |
 
 ```mermaid
 flowchart LR
     A[系统声音] --> B[silero-VAD 分段]
     B --> C[流式 zipformer·低延迟]
-    B --> D[SenseVoice·高精度]
+    B --> D[Qwen3-ASR·高精度]
     C & D --> E[CommitManager 三态消抖]
     E -->|只译已定稿| F[DeepSeek 翻译]
     E & F --> G[悬浮窗双语字幕] -.-> H[历史 srt/txt]
@@ -138,10 +138,10 @@ flowchart LR
 
 - `silero_vad.onnx` — 语音活动检测
 - `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` — 流式 ASR(中英)
-- `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` — 非流式高精度 ASR
+- Qwen3-ASR-0.6B ONNX — 非流式高精度 ASR（CPU INT8 / NVIDIA GPU FP16 按后端二选一）
 - 3D-Speaker campplus / eres2net — 会议声纹区分
 
-离线模式的 Whisper 模型首次使用时自动下载;放到 `models/faster-whisper-large-v3-turbo/` 可固定使用本地模型。
+离线模式复用核心 Qwen3-ASR-0.6B 模型，CPU 使用 INT8，NVIDIA GPU 使用 FP16；不会额外下载 Whisper 模型。
 
 ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时会提示是否下载约 470 MB 到 `models/chattts-int8/`。
 </details>

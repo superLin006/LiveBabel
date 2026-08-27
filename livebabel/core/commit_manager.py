@@ -78,7 +78,7 @@ class CommitManager:
             return seg
 
     def replace_utterance(self, utt_id: int, final_text: str) -> Optional[Segment]:
-        """段结束:删除该段所有临时子句,用 SenseVoice 整段高精度文本替换为一行最终段。
+        """段结束:删除该段所有临时子句,用 Qwen3-ASR 整段高精度文本替换为一行最终段。
 
         保持位置在原临时子句处。返回新的最终段(供重译)。
         """

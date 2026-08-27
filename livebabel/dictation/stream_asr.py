@@ -20,7 +20,7 @@ from typing import Callable, Optional
 import numpy as np
 
 from livebabel.asr.audio_source_mic import MicrophoneSource
-from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.asr.vad_engine import create_asr
 from livebabel.paths import FIRST_DIR, SECOND_DIR
 
 # 防忘松手:单次听写最长时长,超过自动停
@@ -40,7 +40,7 @@ class StreamDictationEngine:
         self._on_error = on_error
         self._on_auto_stop = on_auto_stop
         self._num_threads = num_threads
-        self._asr: Optional[VadTwoPassAsr] = None   # 懒加载 + 复用
+        self._asr = None   # 懒加载 + 复用
         self._asr_lock = threading.Lock()
 
         self._thread: Optional[threading.Thread] = None
@@ -55,17 +55,16 @@ class StreamDictationEngine:
 
     # ---------- 模型懒加载 ----------
 
-    def _ensure_asr(self) -> VadTwoPassAsr:
+    def _ensure_asr(self):
         with self._asr_lock:
             if self._asr is None:
-                # 复用实时/会议模式同款引擎:silero-VAD 主动分段 + 流式 zipformer
-                # + 非流式 SenseVoice。这是项目里验证过能独立工作的那个(TwoPassAsr
-                # 靠流式 endpoint 切句,单独用时常不出字)。
+                # 默认生产链路:silero-VAD 主动分段 + 流式 Zipformer 草稿
+                # + Qwen3-ASR 高精度定稿。
                 # provider 与全局策略一致:auto = 有 CUDA 用 GPU,失败自动回退 CPU
                 # (CPU 版打包检测不到 CUDA,自然走 CPU,无需分支差异)。
-                self._asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR,
-                                          num_threads=self._num_threads,
-                                          provider="auto")
+                self._asr = create_asr(FIRST_DIR, SECOND_DIR,
+                                       num_threads=self._num_threads,
+                                       provider="auto")
             return self._asr
 
     def preload(self) -> None:

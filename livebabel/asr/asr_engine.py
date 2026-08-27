@@ -1,7 +1,7 @@
 """两遍 ASR 引擎。
 
 Pass1(流式 zipformer):每帧解码,产出会变动的 volatile 文本,并负责 endpoint 检测。
-Pass2(非流式 SenseVoice):endpoint 触发时,对该句缓存的音频复识一次,
+Pass2(非流式 Qwen3-ASR):endpoint 触发时,对该句缓存的音频复识一次,
                           得到更准、不抖的定稿文本。
 
 对外只暴露三件事:
@@ -18,6 +18,8 @@ from typing import Optional
 
 import numpy as np
 import sherpa_onnx
+
+from livebabel.asr.qwen3_model import qwen_model_paths
 
 SAMPLE_RATE = 16000
 
@@ -72,6 +74,7 @@ class TwoPassAsr:
         second_dir: str,
         num_threads: int = 2,
     ) -> None:
+        self.provider = "cpu"
         self.first = self._build_first(first_dir, num_threads)
         self.second = self._build_second(second_dir, num_threads)
         self.stream = self.first.create_stream()
@@ -101,11 +104,17 @@ class TwoPassAsr:
         )
 
     def _build_second(self, d: str, nt: int) -> sherpa_onnx.OfflineRecognizer:
-        return sherpa_onnx.OfflineRecognizer.from_sense_voice(
-            model=f"{d}/model.int8.onnx",
-            tokens=f"{d}/tokens.txt",
+        conv, encoder, decoder = qwen_model_paths(d, self.provider)
+        return sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
+            conv_frontend=conv,
+            encoder=encoder,
+            decoder=decoder,
+            tokenizer=f"{d}/tokenizer",
             num_threads=nt,
-            use_itn=True,   # 反规范化:数字/标点更自然
+            provider=self.provider,
+            feature_dim=128,
+            max_total_len=512,
+            max_new_tokens=128,
         )
 
     # ---------- Pass2 复识 ----------

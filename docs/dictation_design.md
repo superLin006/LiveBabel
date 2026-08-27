@@ -12,7 +12,7 @@
 | 翻译 | 先纯听写，翻译留后（后续复用 `core/translator.py`） |
 | 形态 | 后台常驻 + 系统托盘开关（不必开窗口） |
 | 平台 | **Windows 先行**；macOS 留接口，后续用 pynput 补 |
-| ASR | **两阶段**：说话时流式 zipformer 出草稿（浮窗实时反馈），松开后 SenseVoice 整段高精度重识再注入。复用实时模式的 `TwoPassAsr` |
+| ASR | **两阶段**：说话时流式 Zipformer 出草稿（浮窗实时反馈），松开后 Qwen3-ASR 整段高精度重识再注入。复用实时模式的 `VadTwoPassAsr` |
 
 ## 新增依赖
 
@@ -46,7 +46,7 @@ livebabel/ui/
 ```python
 class StreamDictationEngine:
     """两阶段听写引擎。复用实时模式的 TwoPassAsr:边喂麦克风帧边出流式草稿,
-    结束时拿 SenseVoice 高精度定稿。on_draft 回调用于更新草稿浮窗。"""
+    结束时拿 Qwen3-ASR 高精度定稿。on_draft 回调用于更新草稿浮窗。"""
     def __init__(self, on_draft): ...  # on_draft(text:str) 每出一版草稿调一次
     def start(self) -> None: ...
         # 起工作线程跑 MicrophoneSource.frames();每帧 twopass.feed() →
@@ -54,13 +54,13 @@ class StreamDictationEngine:
     def stop(self) -> str: ...
         # 停采集 → twopass.finalize() 拿最后一句高精度定稿 → 返回最终文本(给注入)
 ```
-- 复用 `livebabel/asr/asr_engine.py` 的 `TwoPassAsr`（流式 zipformer + 非流式 SenseVoice）
+- 复用 `livebabel/asr/vad_engine.py` 的 `VadTwoPassAsr`（流式 Zipformer + 非流式 Qwen3-ASR）
   和 `audio_source_mic.py` 的 `MicrophoneSource`（已产 16k mono float32）。
 - 复用 `paths.FIRST_DIR/SECOND_DIR`、`detect_provider()`。
 - **模型懒加载 + 常驻复用**：首次听写时才建 `TwoPassAsr`，之后复用（建模型慢，不能每次重建）。
 - 两阶段流程：
   - 说话中：每帧 `feed()` → `AsrEvent.volatile_text`（流式草稿）→ 推给草稿浮窗实时显示。
-  - 松开键：`finalize()` → 取该段 `committed`（SenseVoice 高精度）→ 注入。
+  - 松开键：`finalize()` → 取该段 `committed`（Qwen3-ASR 高精度）→ 注入。
 - 听写通常一两句，按键界定起止;若用户说很长触发了中途 endpoint,`feed()` 已能拿到
   `committed_text`,可累积拼接(service 负责把多句 committed 串起来)。
 - 上限保护：超过 N 秒（如 60s）自动 stop，防忘松手。
@@ -127,7 +127,7 @@ class DictationService:
 
 ## 验证计划（Windows 真机）
 1. 装 keyboard，源码跑 → 按住热键说中文 → 看草稿浮窗是否边说边出字 → 松开后输入框是否出现最终文本。
-2. 对比草稿(zipformer)与最终(SenseVoice)文本，确认两阶段都正常、定稿更准。
+2. 对比草稿(Zipformer)与最终(Qwen3-ASR)文本，确认两阶段都正常、定稿更准。
 3. 切换注入方式（粘贴 vs 键入）对比中文准确性。
 4. 按住右 Ctrl 进行较长口述，确认中途分段结果最终能拼接成完整文本。
 5. 打包后验证热键、浮窗与注入仍工作。

@@ -128,7 +128,7 @@ class Utterance:
     draft: bool = False      # 是否未定稿草稿(zipformer 实时文本,浅色)
     a_start: float = -1.0    # 该段在本路音频里的起止秒(供会后按声纹边界拆分归属)
     a_end: float = -1.0
-    tokens: list = None      # token 文本列表(SenseVoice)
+    tokens: list = None      # Qwen3-ASR token 文本列表
     timestamps: list = None  # 每个 token 的绝对秒(供精确按字时间拆分)
 
 
@@ -273,7 +273,7 @@ class MeetingRecorder:
     def _split_utterance(self, u: "Utterance", diar_segments, label_fn) -> List["Utterance"]:
         """把一条跨多说话人的转录按声纹边界拆成多条。
 
-        优先用 SenseVoice 的 token 时间戳【精确按字时间】拆:每个 token 落到它时间点
+        优先用 token 时间戳【精确按字时间】拆:每个 token 落到它时间点
         所属的声纹说话人,连续同说话人的 token 合成一条。无时间戳则退化为按时长比例粗切。
         """
         from livebabel.meeting.diarize import speaker_at
@@ -353,7 +353,7 @@ class MeetingRecorder:
 
     def add(self, speaker: str, text: str, a_start: float = -1.0, a_end: float = -1.0,
             tokens=None, timestamps=None) -> None:
-        """定稿一条(SenseVoice 最终文本):入正式列表,并清掉该说话人的草稿。
+        """定稿一条(高精度最终文本):入正式列表,并清掉该说话人的草稿。
 
         a_start/a_end: 该段在本路音频里的起止秒;tokens/timestamps: token 级文本+绝对秒,
         供会后按声纹边界【精确按字时间】拆分归属。
