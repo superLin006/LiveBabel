@@ -18,7 +18,7 @@ from typing import Callable, List, Optional
 
 import numpy as np
 
-from livebabel.asr.vad_engine import VadTwoPassAsr
+from livebabel.asr.vad_engine import create_asr
 from livebabel.asr.audio_source import SAMPLE_RATE
 from livebabel.asr.audio_source_windows import WasapiLoopbackSource
 from livebabel.paths import FIRST_DIR, SECOND_DIR
@@ -114,7 +114,7 @@ class MeetingPipeline:
         self._tracks: List[_Track] = []
         self._done_tracks: List[_Track] = []   # 停止后留存(音频文件供会后声纹)
         self._consumer: Optional[threading.Thread] = None
-        self._shared_first = None    # 两路共享的 zipformer/SenseVoice
+        self._shared_first = None    # 两路共享的 zipformer/Qwen3-ASR
         self._shared_second = None
 
     # ---- 设备打开(回调模式)----
@@ -122,11 +122,11 @@ class MeetingPipeline:
     def _open_track(self, pa, dev, speaker: str) -> _Track:
         import pyaudiowpatch as pyaudio
         tr = _Track(speaker)
-        # 共享模型权重(两路只加载一份 zipformer/SenseVoice,各自独立 vad/stream)
-        tr.asr = VadTwoPassAsr(FIRST_DIR, SECOND_DIR,
-                               provider=getattr(self, "_provider", "auto"),
-                               shared_first=self._shared_first,
-                               shared_second=self._shared_second)
+        # 共享模型权重(两路只加载一份 zipformer/Qwen3-ASR,各自独立 vad/stream)
+        tr.asr = create_asr(FIRST_DIR, SECOND_DIR,
+                            provider=getattr(self, "_provider", "auto"),
+                            shared_first=self._shared_first,
+                            shared_second=self._shared_second)
         tr.native_rate = int(dev["defaultSampleRate"])
         tr.channels = max(1, int(dev["maxInputChannels"]))
         fpb = int(tr.native_rate * 0.1)   # 100ms

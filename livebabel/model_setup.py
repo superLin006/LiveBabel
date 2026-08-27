@@ -3,8 +3,8 @@
 从 ModelScope 统一仓库按需下载,不依赖 modelscope SDK(纯 requests 请求)。
 
 模型分两组:
-  * 核心模型(启动时下载):VAD / zipformer / SenseVoice / 声纹
-  * 按需下载:whisper(离线模式首次) / ChatTTS(朗读时)
+  * 核心模型(启动时下载):VAD / Zipformer / Qwen3-ASR / 声纹
+  * 按需下载:ChatTTS(朗读时)
 
 模型仓库: https://modelscope.cn/models/XHxiehuan/LiveBabel-Models
 """
@@ -34,7 +34,7 @@ _CHATTTS_FILES = (
     "vocos.int8.onnx",
 )
 
-# whisper 按需(不在核心 MANIFEST,首次离线模式时触发)
+# 旧版 Whisper 清单保留用于兼容已有安装，不再被离线模式使用或自动下载。
 _WHISPER_FILES = (
     "config.json",
     "model.bin",
@@ -51,16 +51,47 @@ class ModelItem:
 
     每个 item 包含若干 (远程相对路径, 本地相对路径) 对,
     ready() 检查所有本地文件是否存在,下载时逐个获取。
+
+    alt_files: 旧版备选文件组(保留字段以兼容其他模型清单项)。
     """
     name: str                              # 给用户看的名字
     files: List[Tuple[str, str]] = field(default_factory=list)
+    alt_files: List[Tuple[str, str]] = field(default_factory=list)
+    # Optional provider-specific files.  When set, exactly one variant is
+    # required instead of treating both variants as a single download set.
+    variant_files: dict[str, List[Tuple[str, str]]] = field(default_factory=dict)
+    variant_mb: dict[str, int] = field(default_factory=dict)
     approx_mb: int = 0
 
-    def ready(self) -> bool:
+    @staticmethod
+    def _all_exist(group: List[Tuple[str, str]]) -> bool:
         return all(
             os.path.exists(os.path.join(MODELS_DIR, local))
-            for _, local in self.files
+            for _, local in group
         )
+
+    def files_for(self, provider: Optional[str] = None) -> List[Tuple[str, str]]:
+        if not self.variant_files:
+            return self.files
+        provider = provider or active_asr_provider()
+        variant = "fp16" if provider == "cuda" else "int8"
+        return self.files + self.variant_files[variant]
+
+    def approx_for(self, provider: Optional[str] = None) -> int:
+        if not self.variant_mb:
+            return self.approx_mb
+        provider = provider or active_asr_provider()
+        variant = "fp16" if provider == "cuda" else "int8"
+        return self.variant_mb.get(variant, self.approx_mb)
+
+    def ready(self, provider: Optional[str] = None) -> bool:
+        if self.variant_files:
+            return self._all_exist(self.files_for(provider))
+        if self._all_exist(self.files):
+            return True
+        if self.alt_files:
+            return self._all_exist(self.alt_files)
+        return False
 
 
 # ---- 核心模型清单(启动时下载,不含 whisper/ChatTTS)----
@@ -71,7 +102,7 @@ MANIFEST: List[ModelItem] = [
         approx_mb=1,
     ),
     ModelItem(
-        name="流式 zipformer(实时识别)",
+        name="流式 Zipformer(实时识别)",
         files=[
             ("zipformer/tokens.txt", "zipformer/tokens.txt"),
             ("zipformer/encoder-epoch-99-avg-1.onnx", "zipformer/encoder-epoch-99-avg-1.onnx"),
@@ -83,12 +114,30 @@ MANIFEST: List[ModelItem] = [
         approx_mb=341,
     ),
     ModelItem(
-        name="SenseVoice(高精度识别)",
+        name="Qwen3-ASR(高精度识别)",
+        # frontend/tokenizer 是公共文件；encoder/decoder 按当前后端只选
+        # INT8 或 FP16 一组，避免一台机器同时保存两套约 GB 级权重。
         files=[
-            ("sense-voice/model.int8.onnx", "sense-voice/model.int8.onnx"),
-            ("sense-voice/tokens.txt", "sense-voice/tokens.txt"),
+            ("qwen3-asr/conv_frontend.onnx", "qwen3-asr/conv_frontend.onnx"),
+            ("qwen3-asr/tokenizer/vocab.json", "qwen3-asr/tokenizer/vocab.json"),
+            ("qwen3-asr/tokenizer/merges.txt", "qwen3-asr/tokenizer/merges.txt"),
+            ("qwen3-asr/tokenizer/tokenizer_config.json", "qwen3-asr/tokenizer/tokenizer_config.json"),
         ],
-        approx_mb=229,
+        variant_files={
+            "int8": [
+                ("qwen3-asr/encoder.int8.onnx", "qwen3-asr/encoder.int8.onnx"),
+                ("qwen3-asr/decoder.int8.onnx", "qwen3-asr/decoder.int8.onnx"),
+            ],
+            "fp16": [
+                ("qwen3-asr/encoder.fp16.onnx", "qwen3-asr/encoder.fp16.onnx"),
+                ("qwen3-asr/encoder.fp16.onnx.data", "qwen3-asr/encoder.fp16.onnx.data"),
+                ("qwen3-asr/decoder.fp16.onnx", "qwen3-asr/decoder.fp16.onnx"),
+                ("qwen3-asr/decoder.fp16.onnx.data", "qwen3-asr/decoder.fp16.onnx.data"),
+            ],
+        },
+        # 以当前 ModelScope 导出物的实际大小向上取整，UI 仅作下载提示。
+        variant_mb={"int8": 1000, "fp16": 1800},
+        approx_mb=1000,
     ),
     ModelItem(
         name="声纹 campplus(会议区分说话人, 主力)",
@@ -103,13 +152,59 @@ MANIFEST: List[ModelItem] = [
 ]
 
 
-def missing_items() -> List[ModelItem]:
-    """返回尚未就绪的核心模型项(空列表 = 全齐,不含 whisper/ChatTTS)。"""
-    return [m for m in MANIFEST if not m.ready()]
+def active_asr_provider() -> str:
+    """Return the provider that will be used by the production ASR path."""
+    try:
+        from livebabel.asr.vad_engine import detect_provider
+        return detect_provider()
+    except Exception:
+        # Model download must remain usable even before sherpa-onnx is
+        # installed (for example in a first-run setup helper).
+        return "cpu"
 
 
-def models_ready() -> bool:
-    return not missing_items()
+def missing_items(provider: Optional[str] = None) -> List[ModelItem]:
+    """返回尚未就绪的核心模型项(空列表 = 全齐,不含可选 ChatTTS)。"""
+    provider = provider or active_asr_provider()
+    return [m for m in MANIFEST if not m.ready(provider)]
+
+
+def models_ready(provider: Optional[str] = None) -> bool:
+    return not missing_items(provider)
+
+
+def cleanup_inactive_qwen_variant(provider: Optional[str] = None,
+                                  log: Optional[Callable[[str], None]] = None) -> List[str]:
+    """Remove the Qwen graph variant that the current provider will not use.
+
+    The common frontend/tokenizer stay untouched.  Keeping only INT8 on CPU
+    or FP16 on CUDA avoids shipping roughly 0.6--1.3 GB of duplicate weights
+    in the user's model directory.  The function is intentionally limited to
+    the known Qwen files and returns the removed paths for diagnostics.
+    """
+    # An explicit development directory is outside the managed model store;
+    # never delete files from the packaged/exported directory by accident.
+    if os.environ.get("LIVEBABEL_QWEN_MODEL_DIR", "").strip():
+        return []
+    provider = provider or active_asr_provider()
+    inactive = "fp16" if provider != "cuda" else "int8"
+    names = (
+        ("encoder.fp16.onnx", "encoder.fp16.onnx.data",
+         "decoder.fp16.onnx", "decoder.fp16.onnx.data")
+        if inactive == "fp16" else
+        ("encoder.int8.onnx", "decoder.int8.onnx")
+    )
+    root = os.path.join(MODELS_DIR, "qwen3-asr")
+    removed: List[str] = []
+    for name in names:
+        for suffix in ("", ".part"):
+            path = os.path.join(root, name + suffix)
+            if os.path.isfile(path):
+                os.remove(path)
+                removed.append(path)
+    if removed and log:
+        log(f"已清理未使用的 Qwen3-ASR {inactive.upper()} 模型文件({len(removed)} 个)。")
+    return removed
 
 
 def chattts_ready() -> bool:
@@ -237,13 +332,15 @@ def download_whisper(
 
 def _download_one(
     item: ModelItem,
+    provider: str,
     log: Callable[[str], None],
     on_bytes: Callable[[int, int], None],
     is_cancelled: Callable[[], bool],
 ) -> None:
     """下载单个模型项的所有文件。"""
-    total_files = len(item.files)
-    for idx, (remote, local) in enumerate(item.files, 1):
+    files = item.files_for(provider)
+    total_files = len(files)
+    for idx, (remote, local) in enumerate(files, 1):
         url = f"{_MS_BASE}/{remote}"
         dest = os.path.join(MODELS_DIR, local)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -262,12 +359,16 @@ def download_missing(
     on_progress(idx, count, downloaded, total): 第 idx/count 个 item,
     当前文件已下/总字节。
     """
-    items = missing_items()
+    provider = active_asr_provider()
+    # Remove the inactive variant before downloading, so switching from GPU
+    # to CPU (or vice versa) does not require both large graphs to coexist.
+    cleanup_inactive_qwen_variant(provider, log=log)
+    items = missing_items(provider)
     n = len(items)
     for i, item in enumerate(items, 1):
-        log(f"[{i}/{n}] {item.name}(约 {item.approx_mb}MB)…")
+        log(f"[{i}/{n}] {item.name}(约 {item.approx_for(provider)}MB, {provider})…")
         _download_one(
-            item, log,
+            item, provider, log,
             lambda d, t, _i=i, _n=n: on_progress(_i, _n, d, t),
             is_cancelled,
         )

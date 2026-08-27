@@ -1,6 +1,6 @@
 """离线双语字幕生成 —— 命令行入口。
 
-流程:视频 → faster-whisper 识别(带时间戳) → LLM 翻译 → 生成 SRT+ASS →(可选)硬压进视频。
+流程:视频 → Qwen3-ASR-0.6B 识别(带时间戳) → LLM 翻译 → 生成 SRT+ASS →(可选)硬压进视频。
 
 用法:
     set DEEPSEEK_API_KEY=你的key
@@ -31,7 +31,7 @@ def main() -> None:
     p.add_argument("--lang", default="中文", help="翻译目标语种(中文/英语/日语/韩语…)")
     p.add_argument("--source-lang", default=None,
                    help="源语言代码(如 en/zh/ja),不填则自动检测")
-    p.add_argument("--model", default="large-v3-turbo", help="whisper 模型")
+    p.add_argument("--model", default="qwen3-asr-0.6b", help="兼容参数，固定使用 Qwen3-ASR-0.6B")
     p.add_argument("--device", default="auto", help="auto(自动检测)/ cpu / cuda")
     p.add_argument("--compute-type", default="auto",
                    help="auto(随设备:GPU=float16,CPU=int8)/ int8 / float16")
@@ -63,7 +63,7 @@ def main() -> None:
     srt_path = os.path.join(out_dir, base + ".srt")
     ass_path = os.path.join(out_dir, base + ".ass")
 
-    print(f"[1/4] 识别中(faster-whisper {args.model})…")
+    print("[1/4] 识别中(Qwen3-ASR-0.6B)…")
     def prog(done, total):
         pct = 100 * done / total if total else 0
         print(f"\r      {done:6.1f}/{total:.1f}s ({pct:4.1f}%)", end="", file=sys.stderr)

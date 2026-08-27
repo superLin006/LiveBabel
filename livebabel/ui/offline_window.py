@@ -30,7 +30,7 @@ from livebabel.ui.gui_common import apply_theme, card, section_label, SUBTEXT, W
 
 # 目标语种(下拉)和对应传给翻译器的中文名
 TARGET_LANGS = ["中文", "英语", "日语", "韩语"]
-# 源语言:界面友好名 → whisper 语言代码(None=自动)
+# 源语言:界面友好名 → 兼容旧配置；Qwen3-ASR 当前自动检测语言
 SOURCE_LANGS = {
     "自动检测": None,
     "英语": "en",
@@ -94,7 +94,7 @@ class _Worker(QThread):
         translate = self.o["translate"]
         # 进度分配:识别 0-60%,翻译 60-90%,写盘 90-92%,烧录 92-100%
         dev_name = "GPU" if self.o["device"] == "cuda" else "CPU"
-        self.log.emit(f"[1/4] 识别中(faster-whisper {self.o['model']},{dev_name})…")
+        self.log.emit(f"[1/4] 识别中(Qwen3-ASR-0.6B {dev_name})…")
 
         t0 = time.time()
 
@@ -484,7 +484,7 @@ class OfflineWindow(QWidget):
         on_gpu = self.device_combo.currentIndex() == 1
         # 这些选项整批共用,逐个文件只替换 video
         self._batch_opts = {
-            "model": "large-v3-turbo",
+            "model": "qwen3-asr-0.6b",
             "source_lang": SOURCE_LANGS[self.source_combo.currentText()],
             "target_lang": self.target_combo.currentText(),
             "device": "cuda" if on_gpu else "cpu",
