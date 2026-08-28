@@ -58,10 +58,18 @@ class ModelItem:
     name: str                              # 给用户看的名字
     files: List[Tuple[str, str]] = field(default_factory=list)
     variant_files: dict[str, List[Tuple[str, str]]] = field(default_factory=dict)
+    legacy_files: List[Tuple[str, str]] = field(default_factory=list)
     variant_mb: dict[str, int] = field(default_factory=dict)
     approx_mb: int = 0
 
     def files_for(self, provider: str) -> List[Tuple[str, str]]:
+        # Windows CUDA FP16 streaming Zipformer is opt-in until the target
+        # sherpa-onnx runtime passes validation; use the known-good FP32 graph
+        # during the transition instead of downloading an unsafe model.
+        if (provider == "cuda" and self.legacy_files and
+                os.environ.get("LIVEBABEL_ZIPFORMER_FP16", "").strip().lower()
+                not in ("1", "true", "yes")):
+            return self.files + self.legacy_files
         variant = "fp16" if provider == "cuda" else "int8"
         return self.files + self.variant_files.get(variant, [])
 
@@ -72,6 +80,10 @@ class ModelItem:
         )
 
     def approx_for(self, provider: str) -> int:
+        if (provider == "cuda" and self.legacy_files and
+                os.environ.get("LIVEBABEL_ZIPFORMER_FP16", "").strip().lower()
+                not in ("1", "true", "yes")):
+            return self.approx_mb
         variant = "fp16" if provider == "cuda" else "int8"
         return self.variant_mb.get(variant, self.approx_mb)
 
@@ -89,6 +101,11 @@ MANIFEST: List[ModelItem] = [
             ("zipformer/tokens.txt", "zipformer/tokens.txt"),
             ("zipformer/bpe.model", "zipformer/bpe.model"),
             ("zipformer/bpe.vocab", "zipformer/bpe.vocab"),
+        ],
+        legacy_files=[
+            ("zipformer/encoder-epoch-99-avg-1.onnx", "zipformer/encoder-epoch-99-avg-1.onnx"),
+            ("zipformer/decoder-epoch-99-avg-1.onnx", "zipformer/decoder-epoch-99-avg-1.onnx"),
+            ("zipformer/joiner-epoch-99-avg-1.onnx", "zipformer/joiner-epoch-99-avg-1.onnx"),
         ],
         variant_files={
             "int8": [
