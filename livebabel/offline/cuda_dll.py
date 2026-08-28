@@ -33,10 +33,16 @@ def _nvidia_bin_dirs() -> list[str]:
     # 源码模式:import nvidia 找包目录
     try:
         import nvidia
-        base = os.path.dirname(nvidia.__file__)
-        for bin_dir in glob.glob(os.path.join(base, "*", "bin")):
-            if os.path.isdir(bin_dir):
-                dirs.append(bin_dir)
+        # ``nvidia`` is a namespace package on recent CUDA wheels and has no
+        # ``__file__``.  Walk all namespace roots instead of silently losing
+        # every CUDA directory through ``dirname(None)``.
+        roots = list(getattr(nvidia, "__path__", []) or [])
+        if getattr(nvidia, "__file__", None):
+            roots.append(os.path.dirname(nvidia.__file__))
+        for root in roots:
+            for bin_dir in glob.glob(os.path.join(root, "*", "bin")):
+                if os.path.isdir(bin_dir):
+                    dirs.append(bin_dir)
     except Exception:
         pass
 

@@ -29,8 +29,8 @@ print("[spec] build target =", "CPU-only" if IS_CPU else "GPU", "->", APP_NAME)
 
 # ---- 原生库(.dll/.so / .pyd 依赖)----
 # 这些库带 C 扩展,必须把它们的动态库一起收集,否则运行时崩溃。
-# CPU 版剔除所有可选 GPU 运行库。除了 sherpa/ONNX Runtime provider，
-# CTranslate2 wheel 也可能自带一个 cudnn64_*.dll；CPU 推理不需要它。
+# CPU 版剔除所有可选 GPU 运行库。仅 sherpa-onnx 的 ONNX Runtime provider
+# 会随对应 wheel 进入包；离线识别和 ChatTTS 都不依赖 CTranslate2。
 _GPU_DLL_SKIP = (
     "onnxruntime_providers_cuda",
     "onnxruntime_providers_tensorrt",
@@ -44,7 +44,7 @@ _GPU_DLL_SKIP = (
     "nvjitlink",
 )
 binaries = []
-for pkg in ("sherpa_onnx", "ctranslate2", "av", "onnxruntime"):
+for pkg in ("sherpa_onnx", "onnxruntime"):
     for src, dst in collect_dynamic_libs(pkg):
         if IS_CPU and any(s in os.path.basename(src).lower() for s in _GPU_DLL_SKIP):
             continue
@@ -66,12 +66,10 @@ if not IS_CPU:
         pass
 
 # ---- 数据文件(两版一致)----
-# faster-whisper 自带 silero_vad_v6.onnx(transcribe 用 vad_filter=True 必需);
-# av/ctranslate2 也可能带数据文件;
 # certifi 的 cacert.pem 必需 —— 首启用 requests 走 HTTPS 下载模型要校验证书,
 # 不收会报 SSL: CERTIFICATE_VERIFY_FAILED。
 datas = []
-for pkg in ("faster_whisper", "av", "ctranslate2", "certifi"):
+for pkg in ("certifi",):
     try:
         pkg_datas = collect_data_files(pkg)
         if IS_CPU:
@@ -104,9 +102,8 @@ for f in ("icon.ico", "logo.png"):
 hiddenimports = (
     collect_submodules("sherpa_onnx")
     + collect_submodules("livebabel")
-    + collect_submodules("ctranslate2")
-    + ["app", "soundfile", "numpy", "requests", "certifi", "faster_whisper",
-       "av", "onnxruntime", "pyaudiowpatch", "keyboard"]
+    + ["app", "soundfile", "numpy", "requests", "certifi",
+       "onnxruntime", "pyaudiowpatch", "keyboard"]
 )
 
 # CPU 版:启动即强制 CPU(避免在有 N 卡机器上尝试加载没打包的 GPU dll)
@@ -125,8 +122,7 @@ a = Analysis(
     hookspath=[],
     runtime_hooks=_runtime_hooks,
     # 排除大量不用的库:torch/transformers/funasr/modelscope/jieba 等都是早期
-    # 评估 FunASR 时装的残留,改用 faster-whisper(基于 CTranslate2,不依赖 torch)
-    # 后已不需要。排除它们能把分发包从 ~4G 砍到 ~1.5G(不含模型)。
+    # 评估残留。离线识别改为 sherpa-onnx SenseVoice 后不再需要这些库。
     # 这些只是不打进包,不动开发环境。
     excludes=[
         "tkinter", "matplotlib", "PySide6.QtWebEngineCore",

@@ -20,6 +20,8 @@ from typing import List, Optional
 import numpy as np
 import sherpa_onnx
 
+from livebabel.asr.model_variants import sensevoice_model_path, zipformer_model_paths
+
 SAMPLE_RATE = 16000
 
 _cached_provider = None
@@ -47,6 +49,14 @@ def detect_provider() -> str:
     if _os.environ.get("LIVEBABEL_CPU_ONLY", "").strip() in ("1", "true", "True"):
         _cached_provider = "cpu"
         return "cpu"
+    requested = _os.environ.get("LIVEBABEL_ASR_PROVIDER", "auto").strip().lower()
+    if requested == "cpu":
+        _cached_provider = "cpu"
+        return "cpu"
+    if requested == "cuda":
+        # Explicit CUDA still goes through the safety probe below; a missing
+        # runtime falls back to CPU instead of crashing the whole application.
+        pass
     provider = "cpu"
     try:
         # 1) GPU 版 sherpa-onnx 的 lib 目录里才有 onnxruntime_providers_cuda.dll
@@ -70,14 +80,24 @@ def _cuda_usable() -> bool:
     """
     import sys as _sys
     try:
-        import ctranslate2
-        if ctranslate2.get_cuda_device_count() <= 0:
-            return False
         if _sys.platform.startswith("win"):
-            # 确保 cuBLAS/cuDNN 能被找到/加载,否则虽有卡也会 Error 1114
+            # 确保 cuBLAS/cuDNN 能被找到/加载,否则虽有卡也会 Error 1114。
+            import ctypes
+            ctypes.WinDLL("nvcuda.dll")
             from livebabel.offline.cuda_dll import ensure_cuda_dlls
-            ensure_cuda_dlls()
-        return True
+            dirs = ensure_cuda_dlls()
+            if not dirs:
+                return False
+            ctypes.WinDLL("cublasLt64_12.dll")
+            ctypes.WinDLL("cudnn64_9.dll")
+        try:
+            import onnxruntime as ort
+            return "CUDAExecutionProvider" in ort.get_available_providers()
+        except Exception:
+            # Older custom wheels may not expose Python onnxruntime; retain
+            # the historical ctranslate2 probe as a fallback only.
+            import ctranslate2
+            return ctranslate2.get_cuda_device_count() > 0
     except Exception:
         return False
 
@@ -231,11 +251,12 @@ class VadTwoPassAsr:
         self.stream = self.first.create_stream()
 
     def _build_first(self, d: str, nt: int) -> sherpa_onnx.OnlineRecognizer:
+        tokens, encoder, decoder, joiner = zipformer_model_paths(d, self.provider)
         return sherpa_onnx.OnlineRecognizer.from_transducer(
-            tokens=f"{d}/tokens.txt",
-            encoder=f"{d}/encoder-epoch-99-avg-1.onnx",
-            decoder=f"{d}/decoder-epoch-99-avg-1.onnx",
-            joiner=f"{d}/joiner-epoch-99-avg-1.onnx",
+            tokens=tokens,
+            encoder=encoder,
+            decoder=decoder,
+            joiner=joiner,
             num_threads=nt,
             sample_rate=SAMPLE_RATE,
             feature_dim=80,
@@ -246,7 +267,7 @@ class VadTwoPassAsr:
 
     def _build_second(self, d: str, nt: int) -> sherpa_onnx.OfflineRecognizer:
         return sherpa_onnx.OfflineRecognizer.from_sense_voice(
-            model=f"{d}/model.int8.onnx",
+            model=sensevoice_model_path(d, self.provider),
             tokens=f"{d}/tokens.txt",
             num_threads=nt,
             use_itn=True,

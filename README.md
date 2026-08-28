@@ -7,14 +7,14 @@
 <p align="center">实时字幕 · 离线字幕 · 会议纪要 · 语音输入 · 文本朗读</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-v1.3.0-0A84FF" alt="release">
+  <img src="https://img.shields.io/badge/release-v1.4.1-0A84FF" alt="release">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue" alt="platform">
   <img src="https://img.shields.io/badge/python-3.11-blue" alt="python">
   <img src="https://img.shields.io/badge/GUI-PySide6-41cd52" alt="pyside6">
 </p>
 
-本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) / [faster-whisper](https://github.com/SYSTRAN/faster-whisper)),只有翻译与纪要调用 DeepSeek API。当前推荐的 Windows CPU 发布版无需 NVIDIA 显卡;GPU 完整版可使用 N 卡加速识别。
+本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译、纪要和可选的语音输入 AI 矫正调用 DeepSeek API。v1.4.1 回到稳定的 Zipformer + SenseVoice 两阶段路线，CPU 使用 INT8，NVIDIA GPU 使用 FP16。
 
 <p align="center"><img src="docs/launcher_preview.png" alt="主页" width="620"></p>
 
@@ -37,15 +37,17 @@
 ### 🎙 语音输入
 按住键盘右侧 Ctrl 说话,松开后整理并把最终文字输入到任意软件的光标处。目前仅支持 Windows。
 
+语音输入托盘菜单可选开启“AI 矫正口语和错字”。开启后仅在松开热键时把最终本地识别文本发送给 DeepSeek，去除明显语气词、同音错字和识别错误；实时草稿不会联网，API 失败时自动输入原文。该功能需要 DeepSeek API Key，默认关闭。
+
 <p align="center"><img src="docs/dictation_preview.png" alt="语音输入:任意软件光标处直接出字" width="620"></p>
 
 ## 快速开始
 
 **下载即用(推荐)**:
 
-- **Windows 10 / 11 64 位 CPU 版** — [LiveBabel-CPU-v1.3.0-win64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.3.0/LiveBabel-CPU-v1.3.0-win64.zip),无需 NVIDIA 显卡。
-- **macOS Apple Silicon (arm64)** — [LiveBabel-mac-arm64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.3.0-mac/LiveBabel-mac-arm64.zip)。
-- 完整版本说明见 [LiveBabel v1.3.0 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.3.0)。
+- **Windows 10 / 11 64 位 CPU 版** — [LiveBabel-CPU-v1.4.1-win64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.4.1/LiveBabel-CPU-v1.4.1-win64.zip),无需 NVIDIA 显卡。
+- **macOS Apple Silicon (arm64)** — 请使用 `macos` 分支构建，默认 CPU INT8。
+- 完整版本说明见 [LiveBabel v1.4.1 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.4.1)。
 
 下载后解压并运行程序。首次启动会下载必要的语音识别模型(约 570 MB,国内镜像加速);首次使用朗读时才会另行询问是否下载约 470 MB 的 ChatTTS 模型。模型、个人设置和历史记录均不包含在发布压缩包中。
 
@@ -137,13 +139,15 @@ flowchart LR
 必要的识别模型放在 `models/`(不入库、不进入发布包),首次运行自动弹窗下载,也可手动运行 `packaging\download_models.bat`:
 
 - `silero_vad.onnx` — 语音活动检测
-- `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` — 流式 ASR(中英)
-- `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` — 非流式高精度 ASR
+- `zipformer/` — 流式 ASR(中英)，CPU 下载 `*.int8.onnx`，NVIDIA GPU 下载 `*.fp16.onnx`
+- `sense-voice/` — 非流式高精度 ASR，CPU 下载 `model.int8.onnx`，NVIDIA GPU 下载 `model.fp16.onnx`
 - 3D-Speaker campplus / eres2net — 会议声纹区分
 
-离线模式的 Whisper 模型首次使用时自动下载;放到 `models/faster-whisper-large-v3-turbo/` 可固定使用本地模型。
+离线模式复用 SenseVoice（普通话、粤语、英语、日语、韩语），使用 Silero VAD 生成字幕时间段；Whisper 文件仍在 ModelScope 保留，供旧版 LiveBabel 使用。
 
-ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时会提示是否下载约 470 MB 到 `models/chattts-int8/`。
+ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时按设备提示下载 CPU INT8 或 GPU FP16 版本。
+
+模型仓库：[ModelScope · LiveBabel-Models](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-Models)。CPU/GPU 图按需选择，本地不会同时保存两套大模型。
 </details>
 
 ## 路线图

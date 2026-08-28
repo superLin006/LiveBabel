@@ -4,7 +4,7 @@
 
 模型分两组:
   * 核心模型(启动时下载):VAD / zipformer / SenseVoice / 声纹
-  * 按需下载:whisper(离线模式首次) / ChatTTS(朗读时)
+  * 按需下载:whisper(旧版本兼容) / ChatTTS(朗读时)
 
 模型仓库: https://modelscope.cn/models/XHxiehuan/LiveBabel-Models
 """
@@ -21,18 +21,21 @@ from livebabel.paths import CHATTTS_DIR, MODELS_DIR
 _MS_REPO = "XHxiehuan/LiveBabel-Models"
 _MS_BASE = f"https://www.modelscope.cn/api/v1/models/{_MS_REPO}/resolve/master"
 
-# ChatTTS 独立按需下载(不在核心 MANIFEST 中,点击朗读时才触发)
+# ChatTTS 独立按需下载(不在核心 MANIFEST 中,点击朗读时才触发)。
+# CPU 下载 INT8，NVIDIA CUDA 下载 FP16；公共资源只下载一份。
 CHATTTS_REPO = os.environ.get("LIVEBABEL_CHATTTS_REPO", _MS_REPO)
-CHATTTS_APPROX_MB = 470
-_CHATTTS_FILES = (
-    "decoder.int8.onnx",
+CHATTTS_APPROX_MB = {"int8": 470, "fp16": 940}
+_CHATTTS_COMMON_FILES = (
     "default_speaker.bin",
-    "gpt_decode.int8.onnx",
-    "gpt_prefill.int8.onnx",
     "homophones_map.json",
     "vocab.txt",
-    "vocos.int8.onnx",
 )
+_CHATTTS_VARIANT_FILES = {
+    "int8": ("decoder.int8.onnx", "gpt_decode.int8.onnx",
+             "gpt_prefill.int8.onnx", "vocos.int8.onnx"),
+    "fp16": ("decoder.fp16.onnx", "gpt_decode.fp16.onnx",
+             "gpt_prefill.fp16.onnx", "vocos.fp16.onnx"),
+}
 
 # whisper 按需(不在核心 MANIFEST,首次离线模式时触发)
 _WHISPER_FILES = (
@@ -54,13 +57,23 @@ class ModelItem:
     """
     name: str                              # 给用户看的名字
     files: List[Tuple[str, str]] = field(default_factory=list)
+    variant_files: dict[str, List[Tuple[str, str]]] = field(default_factory=dict)
+    variant_mb: dict[str, int] = field(default_factory=dict)
     approx_mb: int = 0
 
-    def ready(self) -> bool:
+    def files_for(self, provider: str) -> List[Tuple[str, str]]:
+        variant = "fp16" if provider == "cuda" else "int8"
+        return self.files + self.variant_files.get(variant, [])
+
+    def ready(self, provider: str = "cpu") -> bool:
         return all(
-            os.path.exists(os.path.join(MODELS_DIR, local))
-            for _, local in self.files
+            os.path.isfile(os.path.join(MODELS_DIR, local))
+            for _, local in self.files_for(provider)
         )
+
+    def approx_for(self, provider: str) -> int:
+        variant = "fp16" if provider == "cuda" else "int8"
+        return self.variant_mb.get(variant, self.approx_mb)
 
 
 # ---- 核心模型清单(启动时下载,不含 whisper/ChatTTS)----
@@ -74,20 +87,34 @@ MANIFEST: List[ModelItem] = [
         name="流式 zipformer(实时识别)",
         files=[
             ("zipformer/tokens.txt", "zipformer/tokens.txt"),
-            ("zipformer/encoder-epoch-99-avg-1.onnx", "zipformer/encoder-epoch-99-avg-1.onnx"),
-            ("zipformer/decoder-epoch-99-avg-1.onnx", "zipformer/decoder-epoch-99-avg-1.onnx"),
-            ("zipformer/joiner-epoch-99-avg-1.onnx", "zipformer/joiner-epoch-99-avg-1.onnx"),
             ("zipformer/bpe.model", "zipformer/bpe.model"),
             ("zipformer/bpe.vocab", "zipformer/bpe.vocab"),
         ],
+        variant_files={
+            "int8": [
+                ("zipformer/encoder-epoch-99-avg-1.int8.onnx", "zipformer/encoder-epoch-99-avg-1.int8.onnx"),
+                ("zipformer/decoder-epoch-99-avg-1.int8.onnx", "zipformer/decoder-epoch-99-avg-1.int8.onnx"),
+                ("zipformer/joiner-epoch-99-avg-1.int8.onnx", "zipformer/joiner-epoch-99-avg-1.int8.onnx"),
+            ],
+            "fp16": [
+                ("zipformer/encoder-epoch-99-avg-1.fp16.onnx", "zipformer/encoder-epoch-99-avg-1.fp16.onnx"),
+                ("zipformer/decoder-epoch-99-avg-1.fp16.onnx", "zipformer/decoder-epoch-99-avg-1.fp16.onnx"),
+                ("zipformer/joiner-epoch-99-avg-1.fp16.onnx", "zipformer/joiner-epoch-99-avg-1.fp16.onnx"),
+            ],
+        },
+        variant_mb={"int8": 190, "fp16": 180},
         approx_mb=341,
     ),
     ModelItem(
         name="SenseVoice(高精度识别)",
         files=[
-            ("sense-voice/model.int8.onnx", "sense-voice/model.int8.onnx"),
             ("sense-voice/tokens.txt", "sense-voice/tokens.txt"),
         ],
+        variant_files={
+            "int8": [("sense-voice/model.int8.onnx", "sense-voice/model.int8.onnx")],
+            "fp16": [("sense-voice/model.fp16.onnx", "sense-voice/model.fp16.onnx")],
+        },
+        variant_mb={"int8": 229, "fp16": 470},
         approx_mb=229,
     ),
     ModelItem(
@@ -103,18 +130,30 @@ MANIFEST: List[ModelItem] = [
 ]
 
 
-def missing_items() -> List[ModelItem]:
+def active_provider() -> str:
+    try:
+        from livebabel.asr.vad_engine import detect_provider
+        return detect_provider()
+    except Exception:
+        return "cpu"
+
+
+def missing_items(provider: Optional[str] = None) -> List[ModelItem]:
     """返回尚未就绪的核心模型项(空列表 = 全齐,不含 whisper/ChatTTS)。"""
-    return [m for m in MANIFEST if not m.ready()]
+    provider = provider or active_provider()
+    return [m for m in MANIFEST if not m.ready(provider)]
 
 
-def models_ready() -> bool:
-    return not missing_items()
+def models_ready(provider: Optional[str] = None) -> bool:
+    return not missing_items(provider)
 
 
 def chattts_ready() -> bool:
     """返回 ChatTTS 模型目录是否包含全部必需文件。"""
-    return all(os.path.isfile(os.path.join(CHATTTS_DIR, name)) for name in _CHATTTS_FILES)
+    provider = active_provider()
+    variant = "fp16" if provider == "cuda" else "int8"
+    return all(os.path.isfile(os.path.join(CHATTTS_DIR, name))
+               for name in _CHATTTS_COMMON_FILES + _CHATTTS_VARIANT_FILES[variant])
 
 
 def whisper_ready() -> bool:
@@ -208,15 +247,16 @@ def download_chattts(
     log: Callable[[str], None],
     on_progress: Callable[[int, int, int, int], None],
     is_cancelled: Callable[[], bool],
+    provider: Optional[str] = None,
 ) -> None:
-    """从统一仓库下载 ChatTTS 模型(字节级进度)。"""
-    files = [
-        (f"chattts/{name}", os.path.join(CHATTTS_DIR, name))
-        for name in _CHATTTS_FILES
-    ]
+    """从统一仓库下载对应 provider 的 ChatTTS 模型(字节级进度)。"""
+    provider = provider or active_provider()
+    variant = "fp16" if provider == "cuda" else "int8"
+    files = [(f"chattts/{name}", os.path.join(CHATTTS_DIR, name))
+             for name in _CHATTTS_COMMON_FILES + _CHATTTS_VARIANT_FILES[variant]]
     _download_file_list(files, log, on_progress, is_cancelled,
-                        ready_check=chattts_ready,
-                        done_msg="ChatTTS 朗读模型已就绪。")
+                        ready_check=lambda: chattts_ready(),
+                        done_msg=f"ChatTTS {variant.upper()} 朗读模型已就绪。")
 
 
 def download_whisper(
@@ -237,13 +277,15 @@ def download_whisper(
 
 def _download_one(
     item: ModelItem,
+    provider: str,
     log: Callable[[str], None],
     on_bytes: Callable[[int, int], None],
     is_cancelled: Callable[[], bool],
 ) -> None:
     """下载单个模型项的所有文件。"""
-    total_files = len(item.files)
-    for idx, (remote, local) in enumerate(item.files, 1):
+    files = item.files_for(provider)
+    total_files = len(files)
+    for idx, (remote, local) in enumerate(files, 1):
         url = f"{_MS_BASE}/{remote}"
         dest = os.path.join(MODELS_DIR, local)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -262,12 +304,13 @@ def download_missing(
     on_progress(idx, count, downloaded, total): 第 idx/count 个 item,
     当前文件已下/总字节。
     """
-    items = missing_items()
+    provider = active_provider()
+    items = missing_items(provider)
     n = len(items)
     for i, item in enumerate(items, 1):
-        log(f"[{i}/{n}] {item.name}(约 {item.approx_mb}MB)…")
+        log(f"[{i}/{n}] {item.name}(约 {item.approx_for(provider)}MB, {provider})…")
         _download_one(
-            item, log,
+            item, provider, log,
             lambda d, t, _i=i, _n=n: on_progress(_i, _n, d, t),
             is_cancelled,
         )

@@ -356,6 +356,8 @@ class Launcher(QWidget):
                 self._offline_win.set_api_key(self._effective_key())
             if self._meeting_win is not None:
                 self._meeting_win.set_api_key(self._effective_key())
+            if self._dictation_tray is not None:
+                self._dictation_tray.set_api_key(self._effective_key())
 
     def closeEvent(self, e) -> None:
         # 关启动器前,确保离线后台线程已停,避免 "QThread destroyed while running"
@@ -375,22 +377,7 @@ class Launcher(QWidget):
     # ---- 模式 ----
 
     def _open_offline(self) -> None:
-        # 离线用 faster-whisper(large-v3-turbo),本地没有时询问下载,
-        # 用户拒绝或下载失败则不进入。
-        if not self._whisper_local():
-            from PySide6.QtWidgets import QMessageBox
-            btn = QMessageBox.question(
-                self, "离线模式 · 需下载模型",
-                "离线字幕使用 Whisper large-v3-turbo 模型(约 1.6GB)。\n\n"
-                "推荐从 ModelScope 下载(国内高速),是否现在下载?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-            if btn != QMessageBox.Yes:
-                return
-            from livebabel.ui.chattts_download_dialog import (
-                WhisperDownloadDialog as _WhisperDlg)
-            dlg = _WhisperDlg(self)
-            if dlg.exec() != dlg.Accepted:
-                return
+        # v1.4.1 离线字幕复用核心 SenseVoice 模型，不再额外下载 Whisper。
         from livebabel.ui.offline_window import OfflineWindow
         if self._offline_win is None:
             self._offline_win = OfflineWindow(api_key=self._effective_key())
@@ -422,7 +409,8 @@ class Launcher(QWidget):
         try:
             from livebabel.ui.tray import DictationTray
             self._dictation_tray = DictationTray(
-                parent=self, on_shutdown=self._on_dictation_off)
+                parent=self, on_shutdown=self._on_dictation_off,
+                api_key=self._effective_key())
             self._dictation_tray.show()
             self._dictation_tray.enable()   # 点卡片即启用
             self._card_dictation.set_running(True)

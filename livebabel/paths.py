@@ -6,8 +6,9 @@ exe 旁边(而不是打进 exe),所以以 exe 目录为基准;源码运行则以
 模型目录结构(v1.3+):
   models/
     vad/silero_vad.onnx
-    zipformer/{tokens,encoder,decoder,joiner,bpe.*}
-    sense-voice/{model.int8.onnx,tokens.txt}
+    zipformer/{tokens,bpe.*,encoder-*.{int8|fp16}.onnx,
+               decoder-*.{int8|fp16}.onnx,joiner-*.{int8|fp16}.onnx}
+    sense-voice/{model.int8.onnx,model.fp16.onnx,tokens.txt}
     speaker/{campplus.onnx,eres2net_sv_zh.onnx}
     whisper/{config,model.bin,...}
     chattts/{decoder,gpt_*,vocos,...}
@@ -48,7 +49,7 @@ SPEAKER_ERES2NET = res("models", "speaker", "eres2net_sv_zh.onnx")
 WHISPER_DIR = res("models", "whisper")
 
 # ---- ChatTTS 语音合成 ----
-# TTS 朗读:ChatTTS onnx int8 量化版(自魔改 sherpa-onnx 导出)
+# TTS 朗读:按 provider 选择 ChatTTS INT8/FP16 图(自魔改 sherpa-onnx 导出)
 CHATTTS_DIR = res("models", "chattts")
 
 # ---- 历史 / 设置 / 图标 ----

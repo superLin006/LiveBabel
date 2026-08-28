@@ -25,6 +25,7 @@ class _ChatTtsWorker(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._cancel = False
+        self.provider = model_setup.active_provider()
 
     def cancel(self) -> None:
         self._cancel = True
@@ -35,6 +36,7 @@ class _ChatTtsWorker(QObject):
                 log=self.log.emit,
                 on_progress=lambda i, n, d, t: self.progress.emit(i, n, d, t),
                 is_cancelled=lambda: self._cancel,
+                provider=self.provider,
             )
             self.finished.emit(True, "")
         except model_setup.DownloadCancelled:
@@ -74,7 +76,8 @@ class ChatTtsDownloadDialog(QDialog):
         title.setObjectName("section")
         title.setStyleSheet("font-size: 17px; font-weight: 600;")
         tip = QLabel(
-            f"模型约 {model_setup.CHATTTS_APPROX_MB}MB，仅用于朗读功能，不影响实时识别和会议录音。\n"
+            f"{self._provider_label()}模型约 {model_setup.CHATTTS_APPROX_MB[self._provider_variant()]}MB，"
+            "仅用于朗读功能，不影响实时识别和会议录音。\n"
             "下载完成后会自动安装到本地。"
         )
         tip.setWordWrap(True)
@@ -109,6 +112,12 @@ class ChatTtsDownloadDialog(QDialog):
         self.cancel_btn.clicked.connect(self._cancel_or_close)
         buttons.addWidget(self.cancel_btn)
         root.addLayout(buttons)
+
+    def _provider_variant(self) -> str:
+        return "fp16" if model_setup.active_provider() == "cuda" else "int8"
+
+    def _provider_label(self) -> str:
+        return "GPU FP16 " if self._provider_variant() == "fp16" else "CPU INT8 "
 
     def _start(self) -> None:
         if self._thread is not None:

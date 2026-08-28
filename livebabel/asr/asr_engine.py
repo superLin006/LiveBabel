@@ -19,6 +19,8 @@ from typing import Optional
 import numpy as np
 import sherpa_onnx
 
+from livebabel.asr.model_variants import sensevoice_model_path, zipformer_model_paths
+
 SAMPLE_RATE = 16000
 
 # 去掉所有标点/空白后得到有效内容
@@ -72,6 +74,7 @@ class TwoPassAsr:
         second_dir: str,
         num_threads: int = 2,
     ) -> None:
+        self.provider = "cpu"
         self.first = self._build_first(first_dir, num_threads)
         self.second = self._build_second(second_dir, num_threads)
         self.stream = self.first.create_stream()
@@ -85,11 +88,12 @@ class TwoPassAsr:
     # ---------- 模型构建 ----------
 
     def _build_first(self, d: str, nt: int) -> sherpa_onnx.OnlineRecognizer:
+        tokens, encoder, decoder, joiner = zipformer_model_paths(d, self.provider)
         return sherpa_onnx.OnlineRecognizer.from_transducer(
-            tokens=f"{d}/tokens.txt",
-            encoder=f"{d}/encoder-epoch-99-avg-1.onnx",
-            decoder=f"{d}/decoder-epoch-99-avg-1.onnx",
-            joiner=f"{d}/joiner-epoch-99-avg-1.onnx",
+            tokens=tokens,
+            encoder=encoder,
+            decoder=decoder,
+            joiner=joiner,
             num_threads=nt,
             sample_rate=SAMPLE_RATE,
             feature_dim=80,
@@ -102,10 +106,11 @@ class TwoPassAsr:
 
     def _build_second(self, d: str, nt: int) -> sherpa_onnx.OfflineRecognizer:
         return sherpa_onnx.OfflineRecognizer.from_sense_voice(
-            model=f"{d}/model.int8.onnx",
+            model=sensevoice_model_path(d, self.provider),
             tokens=f"{d}/tokens.txt",
             num_threads=nt,
             use_itn=True,   # 反规范化:数字/标点更自然
+            provider=self.provider,
         )
 
     # ---------- Pass2 复识 ----------

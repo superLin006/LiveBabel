@@ -1,7 +1,7 @@
 # 功能 1：语音输入听写 — 实现方案
 
 > 全局热键触发：说话 → ASR 整段识别 → 文字自动注入当前焦点输入框（任意应用）。
-> 本文档为设计稿，供审阅；不含最终代码。
+> v1.4.1 实现说明：代码已落地，本文保留接口和线程模型记录。
 
 ## 决策汇总（已与用户确认）
 
@@ -13,6 +13,7 @@
 | 形态 | 后台常驻 + 系统托盘开关（不必开窗口） |
 | 平台 | **Windows 先行**；macOS 留接口，后续用 pynput 补 |
 | ASR | **两阶段**：说话时流式 zipformer 出草稿（浮窗实时反馈），松开后 SenseVoice 整段高精度重识再注入。复用实时模式的 `TwoPassAsr` |
+| AI 矫正 | 可选，默认关闭；松开热键后才调用 DeepSeek，失败时保留本地原文 |
 
 ## 新增依赖
 
@@ -34,7 +35,8 @@ livebabel/dictation/
 ├── hotkey.py        # 全局热键监听 + PTT/切换两种模式的状态机
 ├── stream_asr.py    # 两阶段识别:复用 TwoPassAsr,边喂边出草稿,结束拿最终定稿
 ├── injector.py      # 把文字注入当前输入框(剪贴板粘贴 / 逐字键入,平台抽象)
-└── service.py       # 编排:热键事件 → 边录边识别(草稿浮窗) → 松开定稿注入;后台常驻
+├── service.py       # 编排:热键事件 → 边录边识别(草稿浮窗) → 松开定稿注入;后台常驻
+└── corrector.py     # 可选 DeepSeek 口语/错字矫正(仅处理最终文本)
 livebabel/ui/
 ├── tray.py          # QSystemTrayIcon:开关听写、切热键、退出
 └── dictation_overlay.py  # 听写草稿小浮窗(说话时实时显示流式草稿,松开后淡出)
@@ -98,10 +100,12 @@ class DictationService:
     线程模型:热键回调在监听线程只发信号,采集/识别在 engine 工作线程,不阻塞热键。"""
     def enable(self) / disable(self): ...
     def set_hotkey(...) / set_inject_mode("paste"|"type"): ...
+    def set_api_key(...) / set_ai_correction(bool): ...
 ```
 - 两阶段时序:start 即弹草稿浮窗、边说边刷新(volatile);stop 后浮窗显示最终定稿
   一瞬→注入→淡出,让用户看到"注入的就是这句"。
 - 草稿浮窗与注入解耦:浮窗只读 on_draft/最终文本;注入只在 stop 拿到 committed 后做。
+- AI 矫正只在 `stop()` 后台定稿线程执行；录音中的草稿不联网。请求失败时发出托盘提示并注入原始 ASR 文本。
 - 跨线程更新 UI:engine 在工作线程,浮窗在 Qt 主线程 → 用信号(Signal)投递草稿,
   不可在工作线程直接动 widget。
 
