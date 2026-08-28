@@ -106,6 +106,9 @@ class DictationTray:
 
     def _set_ai_correction(self, enabled: bool) -> None:
         self._service.set_ai_correction(enabled)
+        # Reload so toggling this menu item cannot overwrite a newer API key
+        # that the launcher saved while the tray was already open.
+        self._settings = load_settings()
         self._settings["dictation_ai_correction"] = bool(enabled)
         save_settings(self._settings)
         state = "已开启" if enabled else "已关闭"
@@ -115,6 +118,7 @@ class DictationTray:
 
     def set_api_key(self, api_key: str) -> None:
         self._service.set_api_key(api_key)
+        self._settings["api_key"] = (api_key or "").strip()
 
     def _on_error(self, msg: str) -> None:
         self._tray.showMessage("语音输入", msg, QSystemTrayIcon.Warning, 4000)
