@@ -148,9 +148,9 @@ def models_ready(provider: Optional[str] = None) -> bool:
     return not missing_items(provider)
 
 
-def chattts_ready() -> bool:
+def chattts_ready(provider: Optional[str] = None) -> bool:
     """返回 ChatTTS 模型目录是否包含全部必需文件。"""
-    provider = active_provider()
+    provider = provider or active_provider()
     variant = "fp16" if provider == "cuda" else "int8"
     return all(os.path.isfile(os.path.join(CHATTTS_DIR, name))
                for name in _CHATTTS_COMMON_FILES + _CHATTTS_VARIANT_FILES[variant])
@@ -255,7 +255,7 @@ def download_chattts(
     files = [(f"chattts/{name}", os.path.join(CHATTTS_DIR, name))
              for name in _CHATTTS_COMMON_FILES + _CHATTTS_VARIANT_FILES[variant]]
     _download_file_list(files, log, on_progress, is_cancelled,
-                        ready_check=lambda: chattts_ready(),
+                        ready_check=lambda: chattts_ready(provider),
                         done_msg=f"ChatTTS {variant.upper()} 朗读模型已就绪。")
 
 

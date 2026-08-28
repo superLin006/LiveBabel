@@ -58,7 +58,19 @@ class ChatTtsEngine:
 
             cfg = sherpa_onnx.OfflineTtsChatTtsModelConfig()
             provider = _select_provider()
-            paths = chattts_model_paths(CHATTTS_DIR, provider)
+            try:
+                paths = chattts_model_paths(CHATTTS_DIR, provider)
+            except FileNotFoundError:
+                if provider != "cuda":
+                    raise
+                # Do not break reading when a GPU FP16 bundle has not been
+                # downloaded yet; use the verified CPU INT8 bundle and make
+                # the downgrade visible to diagnostics.  Once FP16 files
+                # exist, CUDA is always selected above.
+                import sys
+                print("[tts] ChatTTS FP16 模型不存在，回退 CPU INT8", file=sys.stderr)
+                provider = "cpu"
+                paths = chattts_model_paths(CHATTTS_DIR, provider)
             cfg.gpt = paths["gpt_prefill"]
             cfg.decoder = paths["decoder"]
             cfg.vocos = paths["vocos"]

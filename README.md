@@ -148,6 +148,8 @@ flowchart LR
 ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时按设备提示下载 CPU INT8 或 GPU FP16 版本。
 
 模型仓库：[ModelScope · LiveBabel-Models](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-Models)。CPU/GPU 图按需选择，本地不会同时保存两套大模型。
+
+说明：NVIDIA GPU 的 SenseVoice FP16 已验证；Zipformer/ChatTTS FP16 图仍需在目标 sherpa-onnx CUDA runtime 上完成验证，未通过时程序会安全回退到已验证的 FP32/CPU INT8 路径，不会把无效模型作为默认发布物。
 </details>
 
 ## 路线图
