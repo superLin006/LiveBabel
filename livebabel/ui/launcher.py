@@ -34,7 +34,7 @@ from livebabel.ui.gui_common import (
     apply_theme, ACCENT, ACCENT_DEEP, BORDER, CARD, CARD_HOVER, SUBTEXT,
     LAUNCHER_W, LAUNCHER_H, APP_VERSION,
 )
-from livebabel.ui.overlay import load_settings, save_settings
+from livebabel.ui.overlay import load_settings, persist_setting
 
 # 四种模式的图标主题色(苹果系统色,浅→深轻渐变)
 MODE_COLORS = {
@@ -343,8 +343,9 @@ class Launcher(QWidget):
             QLineEdit.Normal, cur,
         )
         if ok:
-            self.s["api_key"] = key.strip()
-            save_settings(self.s)
+            # Read the latest file first: a live overlay/tray can have saved
+            # geometry or dictation options since the launcher was opened.
+            self.s = persist_setting("api_key", key.strip())
             self._refresh_key_status()
             if self._offline_win is not None:
                 self._offline_win.set_api_key(self._effective_key())

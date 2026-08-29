@@ -13,13 +13,18 @@ from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 from livebabel.dictation.service import DictationService
 from livebabel.ui.dictation_overlay import DictationOverlay
 from livebabel.ui.gui_common import app_icon
+from livebabel.ui.overlay import load_settings, save_settings
 
 
 class DictationTray:
     """非 QWidget 的轻量控制器,内部建 QSystemTrayIcon。"""
 
-    def __init__(self, parent=None, on_shutdown=None) -> None:
-        self._service = DictationService()
+    def __init__(self, parent=None, on_shutdown=None, api_key: str = "") -> None:
+        self._settings = load_settings()
+        self._service = DictationService(
+            api_key=api_key,
+            ai_correction=bool(self._settings.get("dictation_ai_correction", False)),
+        )
         self._overlay = DictationOverlay()
         self._on_shutdown = on_shutdown   # 关闭时回调(launcher 同步卡片角标)
 
@@ -51,6 +56,12 @@ class DictationTray:
         self._act_paste.setChecked(True)
         self._act_paste.triggered.connect(lambda: self._set_mode("paste"))
         self._act_type.triggered.connect(lambda: self._set_mode("type"))
+
+        menu.addSeparator()
+        self._act_correct = menu.addAction("AI 矫正口语和错字")
+        self._act_correct.setCheckable(True)
+        self._act_correct.setChecked(self._service.ai_correction_enabled())
+        self._act_correct.toggled.connect(self._set_ai_correction)
 
         menu.addSeparator()
         quit_act = menu.addAction("退出语音输入")
@@ -92,6 +103,24 @@ class DictationTray:
         self._service.set_inject_mode(mode)
         self._act_paste.setChecked(mode == "paste")
         self._act_type.setChecked(mode == "type")
+
+    def _set_ai_correction(self, enabled: bool) -> None:
+        self._service.set_ai_correction(enabled)
+        # Reload so toggling this menu item cannot overwrite a newer API key
+        # that the launcher saved while the tray was already open.
+        self._settings = load_settings()
+        self._settings["dictation_ai_correction"] = bool(enabled)
+        save_settings(self._settings)
+        state = "已开启" if enabled else "已关闭"
+        self._tray.showMessage(
+            "语音输入 AI 矫正", f"{state}；仅在松开热键后处理最终文本。",
+            QSystemTrayIcon.Information, 3000)
+
+    def set_api_key(self, api_key: str) -> None:
+        self._service.set_api_key(api_key)
+        # Keep standalone tray usage persistent too, while preserving any
+        # settings changed by the launcher after this tray was created.
+        self._settings = persist_setting("api_key", (api_key or "").strip())
 
     def _on_error(self, msg: str) -> None:
         self._tray.showMessage("语音输入", msg, QSystemTrayIcon.Warning, 4000)
