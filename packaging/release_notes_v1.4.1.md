@@ -4,7 +4,7 @@ v1.4.1 是面向低配置电脑的稳定双阶段版本，保留 Zipformer 流�
 
 ### 识别与性能
 
-- Zipformer 流式草稿：CPU 使用 INT8，NVIDIA CUDA 使用 FP16。
+- Zipformer 流式草稿：CPU 使用 INT8；当前 Windows CUDA 流式 runtime 使用已验证的 FP32 图回退。
 - SenseVoice 定稿：CPU 使用 INT8，NVIDIA CUDA 使用 FP16。
 - 实时字幕、会议纪要和语音输入共用同一套两阶段引擎，减少低配置机器上的延迟和内存压力。
 - 离线字幕改用 SenseVoice + Silero VAD，不再要求安装 faster-whisper/CTranslate2。
