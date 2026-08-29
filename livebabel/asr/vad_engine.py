@@ -94,10 +94,18 @@ def _cuda_usable() -> bool:
             import onnxruntime as ort
             return "CUDAExecutionProvider" in ort.get_available_providers()
         except Exception:
-            # Older custom wheels may not expose Python onnxruntime; retain
-            # the historical ctranslate2 probe as a fallback only.
-            import ctranslate2
-            return ctranslate2.get_cuda_device_count() > 0
+            # The bundled sherpa wheel may not expose Python ``onnxruntime``
+            # (and ctranslate2 is not a LiveBabel dependency).  On Windows
+            # successful loading of the NVIDIA driver plus cuBLAS/cuDNN is the
+            # best lightweight probe; session construction below remains the
+            # final authority and already falls back safely on failure.
+            if _sys.platform.startswith("win"):
+                return True
+            try:
+                import ctranslate2
+                return ctranslate2.get_cuda_device_count() > 0
+            except Exception:
+                return False
     except Exception:
         return False
 
