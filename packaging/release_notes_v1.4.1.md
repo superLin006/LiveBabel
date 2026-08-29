@@ -27,7 +27,7 @@ v1.4.1 是面向低配置电脑的稳定双阶段版本，保留 Zipformer 流�
 
 ### 发布包下载
 
-- GitHub Release 仅提供 `LiveBabel-CPU-v1.4.1-win64.zip`，适合没有 NVIDIA 显卡的电脑。
+- GitHub Release 仅提供 `LiveBabel-CPU-v1.4.1-win64.zip`（约 111MB），适合没有 NVIDIA 显卡的电脑。
 - CPU/GPU 两个应用包同时同步到 [ModelScope · LiveBabel-sherpa-onnx-wheels](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-sherpa-onnx-wheels)；GPU 包需要 NVIDIA 驱动和 CUDA 运行库支持。
 - 应用包不内置大模型；模型统一从 `LiveBabel-Models` 按需下载，避免 CPU/GPU 两套模型重复占用空间。
 

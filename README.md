@@ -50,7 +50,7 @@
 - **macOS Apple Silicon (arm64)** — 请使用 `macos` 分支构建，默认 CPU INT8。
 - 完整版本说明见 [LiveBabel v1.4.1 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.4.1)。
 
-下载后解压并运行程序。首次启动会下载必要的语音识别模型(约 570 MB,国内镜像加速);首次使用朗读时才会按设备另行询问是否下载 ChatTTS 模型（CPU INT8 约 470 MB，GPU FP16 约 940 MB）。模型、个人设置和历史记录均不包含在发布压缩包中。
+下载后解压并运行程序。首次启动会自动下载必要的语音识别模型（CPU 约 500 MB、GPU 约 880 MB，国内镜像加速）;首次使用朗读时才会按设备另行询问是否下载 ChatTTS 模型（CPU INT8 约 470 MB，GPU FP16 约 940 MB）。模型、个人设置和历史记录均不包含在发布压缩包中。
 
 **源码运行**:
 
@@ -137,7 +137,7 @@ flowchart LR
 
 <details><summary><b>模型清单</b></summary>
 
-必要的识别模型放在 `models/`(不入库、不进入发布包),首次运行自动弹窗下载,也可手动运行 `packaging\download_models.bat`:
+必要的识别模型放在 `models/`(不入库、不进入发布包),首次启动会自动弹窗下载；不需要手动准备模型。
 
 - `silero_vad.onnx` — 语音活动检测
 - `zipformer/` — 流式 ASR(中英)，CPU 下载 `*.int8.onnx`；当前 Windows CUDA 流式 runtime 默认使用已验证的 FP32 图，FP16 仅在显式验证后启用

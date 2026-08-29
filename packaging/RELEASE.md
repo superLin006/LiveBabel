@@ -32,9 +32,7 @@ xcopy /E /I dist\LiveBabel-CPU\_internal          dist\LiveBabel-CPU-release\_in
 **务必排除(隐私!):** `settings.json`(含你的 API Key)、`history\`(你的记录)、
 `log\`、`models\`(太大,用户自己下)。只保留 `exe` + `_internal\`。
 
-往发布副本里放给用户的两个文件(本仓库 dist 准备时已生成,可复用):
-- `下载模型.bat` — 用户首次双击下模型到 models\
-- `使用说明.txt` — 给最终用户的简明说明
+往发布副本里只放 `使用说明.txt` — 给最终用户的简明说明。模型下载由程序首次启动自动完成，不再随包附带单独下载脚本。
 
 ## 二、压缩(在 Windows 上压,保证中文文件名不乱码)
 
@@ -91,7 +89,7 @@ ms-hub upload XHxiehuan/LiveBabel-sherpa-onnx-wheels \
 ## 六、发布说明要点(release notes)
 
 - 三种模式简介(实时/离线/会议)
-- 两个包的区别:GPU 版约 2.12GB（含 CUDA/cuDNN/cuFFT/cuBLAS 运行库，需要 N 卡）/ CPU 版约 144MB（不含 GPU 运行库，任何支持的 Windows 电脑可用）
+- 两个包的区别:GPU 版约 1.77GB 压缩后（含 CUDA/cuDNN/cuFFT/cuBLAS 运行库，需要 N 卡）/ CPU 版约 111MB（不含 GPU 运行库，任何支持的 Windows 电脑可用）
 - 首次使用两步:双击「下载模型.bat」→ 双击 exe
 - 翻译需 DeepSeek API Key(主页设置)
 - 已知:无数字签名,杀软可能误报,选信任即可
