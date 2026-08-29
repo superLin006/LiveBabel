@@ -91,7 +91,7 @@ ms-hub upload XHxiehuan/LiveBabel-sherpa-onnx-wheels \
 ## 六、发布说明要点(release notes)
 
 - 三种模式简介(实时/离线/会议)
-- 两个包的区别:GPU 版开箱即用要 N 卡(~xxxM)/ CPU 版任何电脑可用(~550M)
+- 两个包的区别:GPU 版约 2.12GB（含 CUDA/cuDNN/cuFFT/cuBLAS 运行库，需要 N 卡）/ CPU 版约 144MB（不含 GPU 运行库，任何支持的 Windows 电脑可用）
 - 首次使用两步:双击「下载模型.bat」→ 双击 exe
 - 翻译需 DeepSeek API Key(主页设置)
 - 已知:无数字签名,杀软可能误报,选信任即可
