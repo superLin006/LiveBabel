@@ -12,7 +12,7 @@
 #   3. 产物名:GPU=LiveBabel,CPU=LiveBabel-CPU(目录/exe 都带后缀,可共存)。
 # 其余(数据文件 / 排除库 / 隐式导入)两版完全共用,改一处两版同时生效。
 #
-# 必须在 Windows、已激活 subtitle 环境里执行(PyInstaller 不能跨平台)。
+# 必须在 Windows、已激活 subtitle-new 环境里执行(PyInstaller 不能跨平台)。
 # 产物在 dist\<name>\；正式发布时只打包 exe + _internal，模型由程序首次按需下载。
 
 import os
@@ -43,26 +43,23 @@ _GPU_DLL_SKIP = (
     "nvjitlink",
 )
 binaries = []
-for pkg in ("sherpa_onnx",):
+for pkg in ("sherpa_onnx", "onnxruntime"):
     for src, dst in collect_dynamic_libs(pkg):
+        if "onnxruntime_providers_tensorrt" in os.path.basename(src).lower():
+            continue
         if IS_CPU and any(s in os.path.basename(src).lower() for s in _GPU_DLL_SKIP):
             continue
         binaries.append((src, dst))
 
-# GPU 版才收集 nvidia-* CUDA 运行时。sherpa CUDA provider 初始化需要:
-# cublas/cudnn/cufft/cuda_runtime/cuda_nvrtc/nvjitlink(只带 cublas+cudnn 会报 Error 1114)。
-# 实测 cusparse/cusolver/curand 用不到,排除省 ~1G;cuDNN 全保留(删子包会加载失败)。
+# GPU 版仅收集 sherpa CUDA provider 已验证需要的 NVIDIA 运行时。
 # CPU 版完全不收 nvidia → 省 ~2.3G,靠 rthook 强制 CPU,即使有 N 卡也不碰 GPU。
 if not IS_CPU:
-    _NV_SKIP = ("cusparse", "cusolver", "curand")
-    try:
-        for src, dst in collect_dynamic_libs("nvidia"):
-            # dst 形如 nvidia\cusparse\bin;按子包名过滤
-            if any(("\\%s\\" % s) in (dst + "\\") or ("/%s/" % s) in (dst + "/") for s in _NV_SKIP):
-                continue
-            binaries.append((src, dst))
-    except Exception:
-        pass
+    for pkg in ("nvidia.cublas", "nvidia.cuda_runtime",
+                "nvidia.cudnn", "nvidia.cufft"):
+        try:
+            binaries.extend(collect_dynamic_libs(pkg))
+        except Exception:
+            pass
 
 # ---- 数据文件(两版一致)----
 # certifi 的 cacert.pem 必需 —— 首启用 requests 走 HTTPS 下载模型要校验证书,
@@ -82,10 +79,10 @@ for pkg in ("certifi",):
         datas += pkg_datas
     except Exception:
         pass
-# 把项目根的 ffmpeg\ 目录原样拷进分发包(若存在),实现零配置烧录/解码
+# 只把应用实际调用的 ffmpeg.exe 拷进分发包；ffprobe.exe 不被使用。
 _ffmpeg_dir = os.path.join(ROOT, "ffmpeg")
 if os.path.isdir(_ffmpeg_dir):
-    for name in os.listdir(_ffmpeg_dir):
+    for name in ("ffmpeg.exe",):
         src = os.path.join(_ffmpeg_dir, name)
         if os.path.isfile(src):
             datas.append((src, "ffmpeg"))   # 落到 dist\<name>\ffmpeg\
@@ -102,7 +99,7 @@ hiddenimports = (
     collect_submodules("sherpa_onnx")
     + collect_submodules("livebabel")
     + ["app", "soundfile", "numpy", "requests", "certifi",
-       "pyaudiowpatch", "keyboard"]
+       "onnxruntime", "pyaudiowpatch", "keyboard"]
 )
 
 # CPU 版:启动即强制 CPU(避免在有 N 卡机器上尝试加载没打包的 GPU dll)

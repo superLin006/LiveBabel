@@ -351,6 +351,8 @@ class Launcher(QWidget):
                 self._offline_win.set_api_key(self._effective_key())
             if self._meeting_win is not None:
                 self._meeting_win.set_api_key(self._effective_key())
+            if self._dictation_tray is not None:
+                self._dictation_tray.set_api_key(self._effective_key())
 
     def closeEvent(self, e) -> None:
         # 关启动器前,确保离线后台线程已停,避免 "QThread destroyed while running"
@@ -403,7 +405,8 @@ class Launcher(QWidget):
         try:
             from livebabel.ui.tray import DictationTray
             self._dictation_tray = DictationTray(
-                parent=self, on_shutdown=self._on_dictation_off)
+                parent=self, on_shutdown=self._on_dictation_off,
+                api_key=self._effective_key())
             self._dictation_tray.show()
             self._dictation_tray.enable()   # 点卡片即启用
             self._card_dictation.set_running(True)

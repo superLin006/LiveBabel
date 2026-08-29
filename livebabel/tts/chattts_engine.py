@@ -14,10 +14,11 @@ from typing import Callable, Optional
 import numpy as np
 import sherpa_onnx
 
+from livebabel.asr.model_variants import chattts_model_paths
 from livebabel.paths import CHATTTS_DIR
 
 SAMPLE_RATE = 24000  # ChatTTS/vocos 输出采样率
-_PROVIDER = os.environ.get("LIVEBABEL_TTS_PROVIDER", "cpu").strip().lower()
+_PROVIDER = os.environ.get("LIVEBABEL_TTS_PROVIDER", "auto").strip().lower()
 
 
 def _select_provider() -> str:
@@ -30,6 +31,12 @@ def _select_provider() -> str:
         except Exception:
             pass
         return "cuda"
+    if _PROVIDER == "auto":
+        try:
+            from livebabel.asr.vad_engine import detect_provider
+            return detect_provider()
+        except Exception:
+            pass
     return "cpu"
 
 
@@ -50,9 +57,19 @@ class ChatTtsEngine:
                 return self._tts
 
             cfg = sherpa_onnx.OfflineTtsChatTtsModelConfig()
-            cfg.gpt = f"{CHATTTS_DIR}/gpt_prefill.int8.onnx"
-            cfg.decoder = f"{CHATTTS_DIR}/decoder.int8.onnx"
-            cfg.vocos = f"{CHATTTS_DIR}/vocos.int8.onnx"
+            provider = _select_provider()
+            try:
+                paths = chattts_model_paths(CHATTTS_DIR, provider)
+            except FileNotFoundError:
+                if provider != "cuda":
+                    raise
+                import sys
+                print("[tts] ChatTTS FP16 模型不存在，回退 CPU INT8", file=sys.stderr)
+                provider = "cpu"
+                paths = chattts_model_paths(CHATTTS_DIR, provider)
+            cfg.gpt = paths["gpt_prefill"]
+            cfg.decoder = paths["decoder"]
+            cfg.vocos = paths["vocos"]
             cfg.vocab = f"{CHATTTS_DIR}/vocab.txt"
             cfg.homophones_map = f"{CHATTTS_DIR}/homophones_map.json"
             # 不填 speaker_embedding 时引擎用全零声纹,GPT 采样过程会自由发挥出
@@ -61,7 +78,6 @@ class ChatTtsEngine:
             # scripts/README 或聊天记录)后,相同引擎实例内所有句子音色一致。
             cfg.speaker_embedding = f"{CHATTTS_DIR}/default_speaker.bin"
 
-            provider = _select_provider()
             model_cfg = sherpa_onnx.OfflineTtsModelConfig(
                 num_threads=4, provider=provider)
             model_cfg.chattts = cfg

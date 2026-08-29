@@ -25,6 +25,7 @@ class _ChatTtsWorker(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._cancel = False
+        self.provider = model_setup.active_asr_provider()
 
     def cancel(self) -> None:
         self._cancel = True
@@ -35,6 +36,7 @@ class _ChatTtsWorker(QObject):
                 log=self.log.emit,
                 on_progress=lambda i, n, d, t: self.progress.emit(i, n, d, t),
                 is_cancelled=lambda: self._cancel,
+                provider=self.provider,
             )
             self.finished.emit(True, "")
         except model_setup.DownloadCancelled:
@@ -73,8 +75,10 @@ class ChatTtsDownloadDialog(QDialog):
         title = QLabel("正在下载 ChatTTS 朗读模型")
         title.setObjectName("section")
         title.setStyleSheet("font-size: 17px; font-weight: 600;")
+        variant = "fp16" if model_setup.active_asr_provider() == "cuda" else "int8"
+        approx = model_setup.CHATTTS_APPROX_MB[variant]
         tip = QLabel(
-            f"模型约 {model_setup.CHATTTS_APPROX_MB}MB，仅用于朗读功能，不影响实时识别和会议录音。\n"
+            f"{variant.upper()} 模型约 {approx}MB，仅用于朗读功能，不影响实时识别和会议录音。\n"
             "下载完成后会自动安装到本地。"
         )
         tip.setWordWrap(True)

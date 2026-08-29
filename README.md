@@ -7,14 +7,14 @@
 <p align="center">实时字幕 · 离线字幕 · 会议纪要 · 语音输入 · 文本朗读</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-v1.5.0-0A84FF" alt="release">
+  <img src="https://img.shields.io/badge/release-v1.5.1-0A84FF" alt="release">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue" alt="platform">
   <img src="https://img.shields.io/badge/python-3.11-blue" alt="python">
   <img src="https://img.shields.io/badge/GUI-PySide6-41cd52" alt="pyside6">
 </p>
 
-本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译与纪要调用 DeepSeek API。Windows CPU 发布版无需 NVIDIA 显卡；GPU 环境可使用 N 卡加速 Qwen3-ASR。
+本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译、纪要和可选的语音输入 AI 矫正调用 DeepSeek API。Windows CPU 发布版无需 NVIDIA 显卡；GPU 环境可使用 N 卡加速 Qwen3-ASR。
 
 <p align="center"><img src="docs/launcher_preview.png" alt="主页" width="620"></p>
 
@@ -35,7 +35,7 @@
 会议纪要生成后可直接朗读全文。ChatTTS 会按语义分段并分块播放,长文本无需等整篇合成完成;固定说话人参数可减少逐句音色和语气跳变。朗读默认使用 CPU,首次使用时会单独询问是否下载约 470 MB 的可选模型。
 
 ### 🎙 语音输入
-按住键盘右侧 Ctrl 说话,松开后整理并把最终文字输入到任意软件的光标处。目前仅支持 Windows。
+按住键盘右侧 Ctrl 说话,松开后整理并把最终文字输入到任意软件的光标处。目前仅支持 Windows。托盘可选开启“AI 矫正口语和错字”，仅在松开热键后调用 DeepSeek，失败时自动使用本地原文。
 
 <p align="center"><img src="docs/dictation_preview.png" alt="语音输入:任意软件光标处直接出字" width="620"></p>
 
@@ -43,11 +43,12 @@
 
 **下载即用(推荐)**:
 
-- **Windows 10 / 11 64 位 CPU 版** — [LiveBabel-CPU-v1.5.0-win64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.5.0/LiveBabel-CPU-v1.5.0-win64.zip),无需 NVIDIA 显卡。
+- **Windows 10 / 11 64 位 CPU 版** — 从 [ModelScope 应用包仓库](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-sherpa-onnx-wheels) 下载 `app/v1.5.1/LiveBabel-CPU-v1.5.1-win64.zip`,无需 NVIDIA 显卡。
+- **Windows 10 / 11 64 位 GPU 版** — 同一 ModelScope 仓库的 `app/v1.5.1/LiveBabel-GPU-v1.5.1-win64.zip`,需要 NVIDIA 驱动。
 - **macOS Apple Silicon (arm64)** — 当前使用 `macos` 分支源码运行，暂未发布 v1.5.0 独立安装包。
-- 完整版本说明见 [LiveBabel v1.5.0 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.5.0)。
+- 完整版本说明见 [LiveBabel v1.5.1 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.5.1)。
 
-下载后解压并运行程序。首次启动会下载必要的语音识别模型(按 CPU/GPU 约 1.0–1.9 GB,国内镜像加速);首次使用朗读时才会另行询问是否下载约 470 MB 的 ChatTTS 模型。模型、个人设置和历史记录均不包含在发布压缩包中。
+下载后解压并运行程序。首次启动会自动下载必要的语音识别模型(按 CPU/GPU 约 1.0–1.9 GB,国内镜像加速);首次使用朗读时才会按设备另行询问 ChatTTS 模型（CPU INT8 约 470MB，GPU FP16 约 940MB）。不需要手动运行模型下载脚本。模型、个人设置和历史记录均不包含在发布压缩包中。
 
 **源码运行**:
 
@@ -89,7 +90,7 @@ python tools/offline_subtitle.py 视频.mp4 --lang 中文 --burn    # 命令行�
 - **说话人区分**:线上会议按物理双流(我/远端)天然分开;线下单麦克风靠**声纹聚类**分出发言人,LLM 起名纠错,声纹库下次自动认人。
 - **历史回看**:实时/会议自动存 `.srt` / `.txt`,主页「历史记录」可回看、删除。
 - **多语种**:中 ⇄ 英 / 日 / 韩,运行中可切换。
-- **本地自然朗读**:会议纪要可用 ChatTTS 语义分段、分块播放,固定说话人音色;模型按需下载,默认 CPU 推理。
+- **本地自然朗读**:会议纪要可用 ChatTTS 语义分段、分块播放,固定说话人音色;CPU 使用 INT8，NVIDIA GPU 使用 FP16，模型按需下载。
 
 ## 分支与打包
 
@@ -134,7 +135,7 @@ flowchart LR
 
 <details><summary><b>模型清单</b></summary>
 
-必要的识别模型放在 `models/`(不入库、不进入发布包),首次运行自动弹窗下载,也可手动运行 `packaging\download_models.bat`:
+必要的识别模型放在 `models/`(不入库、不进入发布包),首次启动自动弹窗下载，不需要手动准备模型:
 
 - `silero_vad.onnx` — 语音活动检测
 - `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` — 流式 ASR(中英)
@@ -143,7 +144,7 @@ flowchart LR
 
 离线模式复用核心 Qwen3-ASR-0.6B 模型，CPU 使用 INT8，NVIDIA GPU 使用 FP16；不会额外下载 Whisper 模型。
 
-ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时会提示是否下载约 470 MB 到 `models/chattts/`。
+ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载。首次点击朗读时按设备提示下载 CPU INT8 或 NVIDIA GPU FP16 到 `models/chattts/`。
 </details>
 
 ## 路线图

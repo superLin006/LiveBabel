@@ -21,18 +21,17 @@ from livebabel.paths import CHATTTS_DIR, MODELS_DIR
 _MS_REPO = "XHxiehuan/LiveBabel-Models"
 _MS_BASE = f"https://www.modelscope.cn/api/v1/models/{_MS_REPO}/resolve/master"
 
-# ChatTTS 独立按需下载(不在核心 MANIFEST 中,点击朗读时才触发)
+# ChatTTS 独立按需下载(不在核心 MANIFEST 中,点击朗读时才触发)。
+# CPU/GPU 只保留当前 provider 的一套图，避免两套权重同时占用空间。
 CHATTTS_REPO = os.environ.get("LIVEBABEL_CHATTTS_REPO", _MS_REPO)
-CHATTTS_APPROX_MB = 470
-_CHATTTS_FILES = (
-    "decoder.int8.onnx",
-    "default_speaker.bin",
-    "gpt_decode.int8.onnx",
-    "gpt_prefill.int8.onnx",
-    "homophones_map.json",
-    "vocab.txt",
-    "vocos.int8.onnx",
-)
+CHATTTS_APPROX_MB = {"int8": 470, "fp16": 940}
+_CHATTTS_COMMON_FILES = ("default_speaker.bin", "homophones_map.json", "vocab.txt")
+_CHATTTS_VARIANT_FILES = {
+    "int8": ("decoder.int8.onnx", "gpt_decode.int8.onnx",
+             "gpt_prefill.int8.onnx", "vocos.int8.onnx"),
+    "fp16": ("decoder.fp16.onnx", "gpt_decode.fp16.onnx",
+             "gpt_prefill.fp16.onnx", "vocos.fp16.onnx"),
+}
 
 # 旧版 Whisper 清单保留用于兼容已有安装，不再被离线模式使用或自动下载。
 _WHISPER_FILES = (
@@ -207,9 +206,12 @@ def cleanup_inactive_qwen_variant(provider: Optional[str] = None,
     return removed
 
 
-def chattts_ready() -> bool:
+def chattts_ready(provider: Optional[str] = None) -> bool:
     """返回 ChatTTS 模型目录是否包含全部必需文件。"""
-    return all(os.path.isfile(os.path.join(CHATTTS_DIR, name)) for name in _CHATTTS_FILES)
+    provider = provider or active_asr_provider()
+    variant = "fp16" if provider == "cuda" else "int8"
+    return all(os.path.isfile(os.path.join(CHATTTS_DIR, name))
+               for name in _CHATTTS_COMMON_FILES + _CHATTTS_VARIANT_FILES[variant])
 
 
 def whisper_ready() -> bool:
@@ -303,15 +305,18 @@ def download_chattts(
     log: Callable[[str], None],
     on_progress: Callable[[int, int, int, int], None],
     is_cancelled: Callable[[], bool],
+    provider: Optional[str] = None,
 ) -> None:
     """从统一仓库下载 ChatTTS 模型(字节级进度)。"""
+    provider = provider or active_asr_provider()
+    variant = "fp16" if provider == "cuda" else "int8"
     files = [
         (f"chattts/{name}", os.path.join(CHATTTS_DIR, name))
-        for name in _CHATTTS_FILES
+        for name in _CHATTTS_COMMON_FILES + _CHATTTS_VARIANT_FILES[variant]
     ]
     _download_file_list(files, log, on_progress, is_cancelled,
-                        ready_check=chattts_ready,
-                        done_msg="ChatTTS 朗读模型已就绪。")
+                        ready_check=lambda: chattts_ready(provider),
+                        done_msg=f"ChatTTS {variant.upper()} 朗读模型已就绪。")
 
 
 def download_whisper(

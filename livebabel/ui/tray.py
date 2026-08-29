@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 from livebabel.dictation.service import DictationService
 from livebabel.ui.dictation_overlay import DictationOverlay
 from livebabel.ui.gui_common import app_icon
-from livebabel.ui.overlay import load_settings, save_settings
+from livebabel.ui.overlay import load_settings, persist_setting, save_settings
 
 
 class DictationTray:

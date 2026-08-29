@@ -22,7 +22,7 @@ if errorlevel 1 goto err
 echo.
 echo [3/3] Checking models ...
 if not exist "models\zipformer\tokens.txt" (
-    echo   Models NOT found. Run packaging\download_models.bat to download,
+    echo   Models NOT found. Start the program to download automatically,
     echo   or copy the models folder to project root.
 ) else (
     echo   Models OK.

@@ -10,7 +10,7 @@ LiveBabel 的本地语音模型仓库，供实时字幕、语音输入、会议�
 | `zipformer/` | 流式 Zipformer 实时草稿（Pass1） | 当前使用 | 341 MB |
 | `qwen3-asr/` | Qwen3-ASR-0.6B 高精度识别（Pass2、离线） | 当前使用 | CPU INT8 约 1.0 GB；GPU FP16 约 1.8 GB |
 | `speaker/` | campplus / eres2net 会议说话人识别 | 当前使用 | 65 MB |
-| `chattts/` | ChatTTS 本地朗读 | 按需下载 | 470 MB |
+| `chattts/` | ChatTTS 本地朗读 | CPU INT8 / GPU FP16 按需下载 | 470 / 940 MB |
 | `sense-voice/` | SenseVoice 非流式识别 | 旧版本兼容保留 | 229 MB |
 | `whisper/` | Whisper large-v3-turbo 离线识别 | 旧版本兼容保留 | 1.6 GB |
 

@@ -15,6 +15,7 @@ import threading
 
 from PySide6.QtCore import QObject, Qt, Signal
 
+from livebabel.dictation.corrector import correct_text
 from livebabel.dictation.hotkey import HotkeyManager
 from livebabel.dictation.injector import make_injector
 from livebabel.dictation.stream_asr import StreamDictationEngine
@@ -33,9 +34,12 @@ class DictationService(QObject):
     _reqStart = Signal()
     _reqStop = Signal()
 
-    def __init__(self, inject_mode: str = "paste") -> None:
+    def __init__(self, inject_mode: str = "paste", api_key: str = "",
+                 ai_correction: bool = False) -> None:
         super().__init__()
         self._inject_mode = inject_mode
+        self._api_key = (api_key or "").strip()
+        self._ai_correction = bool(ai_correction)
         self._enabled = False
         self._finalizing = False
         self._engine = StreamDictationEngine(
@@ -92,6 +96,15 @@ class DictationService(QObject):
         if self._hotkey is not None:
             self._hotkey.set_hotkey(keys)
 
+    def set_api_key(self, api_key: str) -> None:
+        self._api_key = (api_key or "").strip()
+
+    def set_ai_correction(self, enabled: bool) -> None:
+        self._ai_correction = bool(enabled)
+
+    def ai_correction_enabled(self) -> bool:
+        return self._ai_correction
+
     # ---------- 主线程槽(经 QueuedConnection 调用)----------
 
     def _begin(self) -> None:
@@ -120,6 +133,13 @@ class DictationService(QObject):
     def _finalize_in_worker(self) -> None:
         try:
             text = self._engine.stop()
+            if text and self._ai_correction:
+                original = text
+                try:
+                    text = correct_text(text, self._api_key)
+                except Exception as e:
+                    text = original
+                    self.error.emit(f"AI 矫正失败，将直接输入原文：{e}")
             error = ""
         except Exception as e:
             text = ""
