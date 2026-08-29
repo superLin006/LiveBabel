@@ -62,11 +62,34 @@ def load_settings() -> dict:
 
 
 def save_settings(s: dict) -> None:
+    """Persist settings atomically.
+
+    Callers that update one field should start from ``load_settings()`` first;
+    several windows can be open at once and a stale settings dictionary must
+    not overwrite a newer API key.
+    """
     try:
-        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+        tmp = SETTINGS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(s, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, SETTINGS_PATH)
     except Exception:
         pass
+
+
+def persist_setting(key: str, value) -> dict:
+    """Update one setting using the latest on-disk state.
+
+    The launcher and overlay both write ``settings.json``.  Loading the file
+    immediately before a single-field update prevents an older overlay (for
+    example one opened before the user entered the API key) from writing its
+    stale ``api_key`` back when it later saves geometry or display options.
+    """
+    latest = load_settings()
+    latest[key] = value
+    save_settings(latest)
+    return latest
 
 
 @dataclass
@@ -337,20 +360,17 @@ class SubtitleOverlay(QWidget):
             QLineEdit.Normal, cur,
         )
         if ok:
-            self.s["api_key"] = text.strip()
-            save_settings(self.s)
+            self.s = persist_setting("api_key", text.strip())
             self.api_key_changed.emit(text.strip())
 
     def _set(self, key: str, val) -> None:
-        self.s[key] = val
-        save_settings(self.s)
+        self.s = persist_setting(key, val)
         self._render(self._last_lines)   # 立即重绘
 
     def _set_lang(self, lang: str) -> None:
         if lang == self.s["lang"]:
             return                       # 避免下拉/菜单互相触发成环
-        self.s["lang"] = lang
-        save_settings(self.s)
+        self.s = persist_setting("lang", lang)
         # 同步下拉框显示(从右键菜单改时)
         if self._cmb_lang.currentText() != lang:
             self._cmb_lang.blockSignals(True)
@@ -423,8 +443,8 @@ class SubtitleOverlay(QWidget):
 
     def _save_geo(self) -> None:
         g = self.geometry()
-        self.s["geometry"] = [g.x(), g.y(), g.width(), g.height()]
-        save_settings(self.s)
+        self.s = persist_setting(
+            "geometry", [g.x(), g.y(), g.width(), g.height()])
 
     def _quit(self) -> None:
         self._save_geo()

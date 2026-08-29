@@ -17,6 +17,10 @@ v1.4.1 是面向低配置电脑的稳定双阶段版本，保留 Zipformer 流�
 - 开启后只在松开右 Ctrl、完成本地识别后调用 DeepSeek，校正明显语气词、同音错字和 ASR 错误。
 - 录音和实时草稿不会发送到网络；API Key 缺失、超时或失败时自动输入原始识别结果。
 
+### 稳定性修复
+
+- 修复 DeepSeek API Key 在启动器、悬浮窗或托盘同时使用时可能被旧设置覆盖，或因写盘中断导致重启后丢失的问题；设置现在按单字段合并并原子保存。
+
 ### 模型下载
 
 模型统一从 [ModelScope · LiveBabel-Models](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-Models) 下载。程序按实际 provider 只下载一套 Zipformer/SenseVoice/ChatTTS 精度变体，旧的 `sense-voice/`、`whisper/` 路径继续保留用于历史版本兼容。

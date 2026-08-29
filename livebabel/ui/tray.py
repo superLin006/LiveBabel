@@ -118,7 +118,9 @@ class DictationTray:
 
     def set_api_key(self, api_key: str) -> None:
         self._service.set_api_key(api_key)
-        self._settings["api_key"] = (api_key or "").strip()
+        # Keep standalone tray usage persistent too, while preserving any
+        # settings changed by the launcher after this tray was created.
+        self._settings = persist_setting("api_key", (api_key or "").strip())
 
     def _on_error(self, msg: str) -> None:
         self._tray.showMessage("语音输入", msg, QSystemTrayIcon.Warning, 4000)
