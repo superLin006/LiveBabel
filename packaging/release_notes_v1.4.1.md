@@ -21,6 +21,12 @@ v1.4.1 是面向低配置电脑的稳定双阶段版本，保留 Zipformer 流�
 
 模型统一从 [ModelScope · LiveBabel-Models](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-Models) 下载。程序按实际 provider 只下载一套 Zipformer/SenseVoice/ChatTTS 精度变体，旧的 `sense-voice/`、`whisper/` 路径继续保留用于历史版本兼容。
 
+### 发布包下载
+
+- GitHub Release 仅提供 `LiveBabel-CPU-v1.4.1-win64.zip`，适合没有 NVIDIA 显卡的电脑。
+- CPU/GPU 两个应用包同时同步到 [ModelScope · LiveBabel-sherpa-onnx-wheels](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-sherpa-onnx-wheels)；GPU 包需要 NVIDIA 驱动和 CUDA 运行库支持。
+- 应用包不内置大模型；模型统一从 `LiveBabel-Models` 按需下载，避免 CPU/GPU 两套模型重复占用空间。
+
 ### 已知限制
 
 - SenseVoice 离线模式的语言覆盖少于 Whisper；非中英日韩粤语内容请继续使用 v1.5.0 或旧版 Whisper 流程。

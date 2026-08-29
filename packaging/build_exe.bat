@@ -6,7 +6,7 @@ REM  "subtitle" env. ffmpeg is bundled by the spec; models are
 REM  copied next to the exe after build.
 REM ============================================================
 setlocal
-set ENV_NAME=subtitle
+set ENV_NAME=subtitle-new
 
 REM Go to project root (this script is in packaging\, root is one up)
 cd /d "%~dp0.."

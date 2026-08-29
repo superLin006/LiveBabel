@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/GUI-PySide6-41cd52" alt="pyside6">
 </p>
 
-本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译、纪要和可选的语音输入 AI 矫正调用 DeepSeek API。v1.4.1 回到稳定的 Zipformer + SenseVoice 两阶段路线，CPU 使用 INT8，NVIDIA GPU 使用 FP16。
+本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译、纪要和可选的语音输入 AI 矫正调用 DeepSeek API。v1.4.1 回到稳定的 Zipformer + SenseVoice 两阶段路线：CPU 使用 INT8；NVIDIA GPU 上 SenseVoice/ChatTTS 使用 FP16，Zipformer 流式草稿使用当前 Windows CUDA runtime 已验证的 FP32 回退。
 
 <p align="center"><img src="docs/launcher_preview.png" alt="主页" width="620"></p>
 
@@ -46,10 +46,11 @@
 **下载即用(推荐)**:
 
 - **Windows 10 / 11 64 位 CPU 版** — [LiveBabel-CPU-v1.4.1-win64.zip](https://github.com/superLin006/LiveBabel/releases/download/v1.4.1/LiveBabel-CPU-v1.4.1-win64.zip),无需 NVIDIA 显卡。
+- **Windows 10 / 11 64 位 GPU 版** — 从 [ModelScope 应用包仓库](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-sherpa-onnx-wheels) 下载 `LiveBabel-GPU-v1.4.1-win64.zip`，需要 NVIDIA 驱动；同仓库也提供 CPU 镜像包。
 - **macOS Apple Silicon (arm64)** — 请使用 `macos` 分支构建，默认 CPU INT8。
 - 完整版本说明见 [LiveBabel v1.4.1 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.4.1)。
 
-下载后解压并运行程序。首次启动会下载必要的语音识别模型(约 570 MB,国内镜像加速);首次使用朗读时才会另行询问是否下载约 470 MB 的 ChatTTS 模型。模型、个人设置和历史记录均不包含在发布压缩包中。
+下载后解压并运行程序。首次启动会下载必要的语音识别模型(约 570 MB,国内镜像加速);首次使用朗读时才会按设备另行询问是否下载 ChatTTS 模型（CPU INT8 约 470 MB，GPU FP16 约 940 MB）。模型、个人设置和历史记录均不包含在发布压缩包中。
 
 **源码运行**:
 
@@ -91,7 +92,7 @@ python tools/offline_subtitle.py 视频.mp4 --lang 中文 --burn    # 命令行�
 - **说话人区分**:线上会议按物理双流(我/远端)天然分开;线下单麦克风靠**声纹聚类**分出发言人,LLM 起名纠错,声纹库下次自动认人。
 - **历史回看**:实时/会议自动存 `.srt` / `.txt`,主页「历史记录」可回看、删除。
 - **多语种**:中 ⇄ 英 / 日 / 韩,运行中可切换。
-- **本地自然朗读**:会议纪要可用 ChatTTS 语义分段、分块播放,固定说话人音色;模型按需下载,默认 CPU 推理。
+- **本地自然朗读**:会议纪要可用 ChatTTS 语义分段、分块播放,固定说话人音色;模型按需下载,CPU 使用 INT8，NVIDIA GPU 使用 FP16。
 
 ## 分支与打包
 
@@ -139,7 +140,7 @@ flowchart LR
 必要的识别模型放在 `models/`(不入库、不进入发布包),首次运行自动弹窗下载,也可手动运行 `packaging\download_models.bat`:
 
 - `silero_vad.onnx` — 语音活动检测
-- `zipformer/` — 流式 ASR(中英)，CPU 下载 `*.int8.onnx`，NVIDIA GPU 下载 `*.fp16.onnx`
+- `zipformer/` — 流式 ASR(中英)，CPU 下载 `*.int8.onnx`；当前 Windows CUDA 流式 runtime 默认使用已验证的 FP32 图，FP16 仅在显式验证后启用
 - `sense-voice/` — 非流式高精度 ASR，CPU 下载 `model.int8.onnx`，NVIDIA GPU 下载 `model.fp16.onnx`
 - 3D-Speaker campplus / eres2net — 会议声纹区分
 
@@ -149,7 +150,7 @@ ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载�
 
 模型仓库：[ModelScope · LiveBabel-Models](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-Models)。CPU/GPU 图按需选择，本地不会同时保存两套大模型。
 
-说明：NVIDIA GPU 的 SenseVoice FP16、ChatTTS FP16 已在当前 sherpa-onnx CUDA wheel 上验证；Zipformer FP16 仍受 Windows CUDA 流式 runtime 兼容性影响，未通过时程序会安全回退到已验证的 FP32 图，不会把无效模型作为默认发布物。
+说明：NVIDIA GPU 的 SenseVoice FP16、ChatTTS FP16 已在当前 sherpa-onnx CUDA wheel 上验证；Zipformer FP16 仍受 Windows CUDA 流式 runtime 兼容性影响，程序默认使用已验证的 FP32 图，不会把未经验证的 FP16 图作为默认发布物。CPU/GPU 应用包的下载位置见 [发布包说明](packaging/RELEASE.md)。
 </details>
 
 ## 路线图
