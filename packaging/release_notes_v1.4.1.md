@@ -25,4 +25,4 @@ v1.4.1 是面向低配置电脑的稳定双阶段版本，保留 Zipformer 流�
 
 - SenseVoice 离线模式的语言覆盖少于 Whisper；非中英日韩粤语内容请继续使用 v1.5.0 或旧版 Whisper 流程。
 - AI 矫正需要联网并消耗 DeepSeek API 额度，关闭后完全不产生该请求。
-- Zipformer/ChatTTS 的 GPU FP16 图必须与所用 sherpa-onnx CUDA runtime 一起验证；未验证通过时程序保留已验证的 CPU INT8/FP32 回退，不发布未通过的模型文件。
+- Zipformer GPU FP16 图必须与所用 sherpa-onnx CUDA runtime 一起验证；当前 Windows 流式 runtime 不稳定时保留已验证的 FP32 回退。ChatTTS GPU FP16 已在当前 wheel 上验证。
