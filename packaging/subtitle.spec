@@ -46,6 +46,11 @@ _GPU_DLL_SKIP = (
 binaries = []
 for pkg in ("sherpa_onnx", "onnxruntime"):
     for src, dst in collect_dynamic_libs(pkg):
+        # LiveBabel uses the CUDA execution provider only.  The TensorRT
+        # provider has no corresponding runtime in the bundle and is never
+        # selected by the application; shipping it only adds a dangling DLL.
+        if "onnxruntime_providers_tensorrt" in os.path.basename(src).lower():
+            continue
         if IS_CPU and any(s in os.path.basename(src).lower() for s in _GPU_DLL_SKIP):
             continue
         binaries.append((src, dst))
@@ -55,15 +60,18 @@ for pkg in ("sherpa_onnx", "onnxruntime"):
 # 实测 cusparse/cusolver/curand 用不到,排除省 ~1G;cuDNN 全保留(删子包会加载失败)。
 # CPU 版完全不收 nvidia → 省 ~2.3G,靠 rthook 强制 CPU,即使有 N 卡也不碰 GPU。
 if not IS_CPU:
-    _NV_SKIP = ("cusparse", "cusolver", "curand")
-    try:
-        for src, dst in collect_dynamic_libs("nvidia"):
-            # dst 形如 nvidia\cusparse\bin;按子包名过滤
-            if any(("\\%s\\" % s) in (dst + "\\") or ("/%s/" % s) in (dst + "/") for s in _NV_SKIP):
-                continue
-            binaries.append((src, dst))
-    except Exception:
-        pass
+    # Do not collect the umbrella ``nvidia`` namespace: it also pulls in
+    # optional CUDA packages (NVRTC/NVJitLink/cuSOLVER/cuSPARSE/curand).
+    # The sherpa CUDA provider used here directly links cublas, cublasLt,
+    # cufft and cudart, and loads the cuDNN 9 split libraries lazily.  These
+    # four packages are the smallest self-contained runtime validated by the
+    # SenseVoice FP16, ChatTTS FP16 and Zipformer FP32 smoke tests.
+    for pkg in ("nvidia.cublas", "nvidia.cuda_runtime",
+                "nvidia.cudnn", "nvidia.cufft"):
+        try:
+            binaries.extend(collect_dynamic_libs(pkg))
+        except Exception:
+            pass
 
 # ---- 数据文件(两版一致)----
 # certifi 的 cacert.pem 必需 —— 首启用 requests 走 HTTPS 下载模型要校验证书,
@@ -83,10 +91,11 @@ for pkg in ("certifi",):
         datas += pkg_datas
     except Exception:
         pass
-# 把项目根的 ffmpeg\ 目录原样拷进分发包(若存在),实现零配置烧录/解码
+# 把项目根的 ffmpeg.exe 拷进分发包(若存在),实现零配置烧录/解码。
+# ffprobe.exe 未被应用调用，不随包发布(可省约 45MB 压缩体积)。
 _ffmpeg_dir = os.path.join(ROOT, "ffmpeg")
 if os.path.isdir(_ffmpeg_dir):
-    for name in os.listdir(_ffmpeg_dir):
+    for name in ("ffmpeg.exe",):
         src = os.path.join(_ffmpeg_dir, name)
         if os.path.isfile(src):
             datas.append((src, "ffmpeg"))   # 落到 dist\<name>\ffmpeg\

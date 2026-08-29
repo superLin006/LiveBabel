@@ -97,12 +97,12 @@ def ensure_cuda_dlls() -> list[str]:
     if dirs:
         os.environ["PATH"] = os.pathsep.join(dirs) + os.pathsep + os.environ.get("PATH", "")
 
-    # 按依赖顺序预加载 sherpa CUDA provider 所需的运行时:基础 runtime/nvrtc/jitlink
-    # 先,然后 cublas/cufft,最后 cuDNN(依赖前面)。缺任一会 Error 1114。
-    # cusparse/cusolver/curand 实测用不到,不预加载也不打包(省 ~1GB)。
+    # 按依赖顺序预加载 sherpa CUDA provider 所需的运行时:基础 runtime,
+    # 然后 cublas/cufft,最后 cuDNN(依赖前面)。当前应用不使用 NVRTC、
+    # NVJitLink、cuSPARSE、cuSOLVER 或 cuRAND，因此 GPU 发布包不携带它们。
     import ctypes
     patterns = [
-        "cudart64_*.dll", "nvrtc64_*.dll", "nvrtc-builtins64_*.dll", "nvJitLink_64_*.dll",
+        "cudart64_*.dll",
         "cublasLt64_*.dll", "cublas64_*.dll", "cufft64_*.dll",
         "cudnn_graph64_9.dll", "cudnn_ops64_9.dll", "cudnn_heuristic64_9.dll",
         "cudnn_cnn64_9.dll", "cudnn_engines_runtime_compiled64_9.dll",
