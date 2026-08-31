@@ -22,6 +22,7 @@ import numpy as np
 import sherpa_onnx
 
 from livebabel.asr.qwen3_model import has_qwen_cuda_model, qwen_model_paths
+from livebabel.asr.model_variants import zipformer_model_paths
 
 SAMPLE_RATE = 16000
 
@@ -253,11 +254,11 @@ class VadTwoPassAsr:
         self.stream = self.first.create_stream()
 
     def _build_first(self, d: str, nt: int) -> sherpa_onnx.OnlineRecognizer:
+        paths = zipformer_model_paths(d, self.provider)
         return sherpa_onnx.OnlineRecognizer.from_transducer(
             tokens=f"{d}/tokens.txt",
-            encoder=f"{d}/encoder-epoch-99-avg-1.onnx",
-            decoder=f"{d}/decoder-epoch-99-avg-1.onnx",
-            joiner=f"{d}/joiner-epoch-99-avg-1.onnx",
+            encoder=paths["encoder"], decoder=paths["decoder"],
+            joiner=paths["joiner"],
             num_threads=nt,
             sample_rate=SAMPLE_RATE,
             feature_dim=80,

@@ -7,6 +7,7 @@ exe 旁边(而不是打进 exe),所以以 exe 目录为基准;源码运行则以
   models/
     vad/silero_vad.onnx
     zipformer/{tokens,encoder,decoder,joiner,bpe.*}
+      (CPU: INT8 encoder/joiner + FP32 decoder; GPU: all FP32)
     qwen3-asr/{conv_frontend.onnx,encoder.int8.onnx,decoder.int8.onnx,tokenizer/*}
     (GPU 安装时 encoder/decoder 使用 FP16 及 .data；两种变体不同时保留)
     speaker/{campplus.onnx,eres2net_sv_zh.onnx}

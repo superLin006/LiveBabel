@@ -12,6 +12,6 @@ v1.5.1 保留 v1.5.0 的 Qwen3-ASR-0.6B 路线，同时同步 v1.4.1 已验证�
 
 ### 模型和应用包
 
-- Qwen3-ASR CPU 使用 INT8，NVIDIA GPU 使用 FP16；当前 Windows CUDA 流式 Zipformer 草稿使用已验证的 FP32 图。
+- Qwen3-ASR CPU 使用 INT8，NVIDIA GPU 使用 FP16；Windows CPU 流式 Zipformer 使用 INT8 encoder/joiner + FP32 decoder 混合图，GPU 使用全 FP32 图，避免 INT8 decoder 导致的重复草稿。
 - 应用包不内置模型。CPU/GPU ZIP 和 SHA256 位于 [ModelScope 应用包仓库](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-sherpa-onnx-wheels) 的 `app/v1.5.1/`。
 - v1.5.0 的 Qwen3-ASR 版本继续保留，作为独立回滚版本；旧版 Whisper/SenseVoice 模型也不会删除。

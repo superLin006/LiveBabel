@@ -56,10 +56,11 @@ class ModelItem:
     name: str                              # 给用户看的名字
     files: List[Tuple[str, str]] = field(default_factory=list)
     alt_files: List[Tuple[str, str]] = field(default_factory=list)
-    # Optional provider-specific files.  When set, exactly one variant is
+    # Optional provider-specific files. When set, exactly one variant is
     # required instead of treating both variants as a single download set.
     variant_files: dict[str, List[Tuple[str, str]]] = field(default_factory=dict)
     variant_mb: dict[str, int] = field(default_factory=dict)
+    provider_variants: dict[str, str] = field(default_factory=dict)
     approx_mb: int = 0
 
     @staticmethod
@@ -73,14 +74,16 @@ class ModelItem:
         if not self.variant_files:
             return self.files
         provider = provider or active_asr_provider()
-        variant = "fp16" if provider == "cuda" else "int8"
+        variant = self.provider_variants.get(
+            provider, "fp16" if provider == "cuda" else "int8")
         return self.files + self.variant_files[variant]
 
     def approx_for(self, provider: Optional[str] = None) -> int:
         if not self.variant_mb:
             return self.approx_mb
         provider = provider or active_asr_provider()
-        variant = "fp16" if provider == "cuda" else "int8"
+        variant = self.provider_variants.get(
+            provider, "fp16" if provider == "cuda" else "int8")
         return self.variant_mb.get(variant, self.approx_mb)
 
     def ready(self, provider: Optional[str] = None) -> bool:
@@ -101,16 +104,31 @@ MANIFEST: List[ModelItem] = [
         approx_mb=1,
     ),
     ModelItem(
-        name="流式 Zipformer(实时识别)",
+        name="流式 Zipformer(实时草稿)",
         files=[
             ("zipformer/tokens.txt", "zipformer/tokens.txt"),
-            ("zipformer/encoder-epoch-99-avg-1.onnx", "zipformer/encoder-epoch-99-avg-1.onnx"),
             ("zipformer/decoder-epoch-99-avg-1.onnx", "zipformer/decoder-epoch-99-avg-1.onnx"),
-            ("zipformer/joiner-epoch-99-avg-1.onnx", "zipformer/joiner-epoch-99-avg-1.onnx"),
             ("zipformer/bpe.model", "zipformer/bpe.model"),
             ("zipformer/bpe.vocab", "zipformer/bpe.vocab"),
         ],
-        approx_mb=341,
+        variant_files={
+            # CPU 混合精度：只量化 encoder/joiner，decoder 保持 FP32，
+            # 避免全 INT8 解码器造成重复草稿。
+            "int8": [
+                ("zipformer/encoder-epoch-99-avg-1.int8.onnx",
+                 "zipformer/encoder-epoch-99-avg-1.int8.onnx"),
+                ("zipformer/joiner-epoch-99-avg-1.int8.onnx",
+                 "zipformer/joiner-epoch-99-avg-1.int8.onnx"),
+            ],
+            "fp32": [
+                ("zipformer/encoder-epoch-99-avg-1.onnx",
+                 "zipformer/encoder-epoch-99-avg-1.onnx"),
+                ("zipformer/joiner-epoch-99-avg-1.onnx",
+                 "zipformer/joiner-epoch-99-avg-1.onnx"),
+            ],
+        },
+        variant_mb={"int8": 200, "fp32": 360},
+        provider_variants={"cpu": "int8", "cuda": "fp32"},
     ),
     ModelItem(
         name="Qwen3-ASR(高精度识别)",
@@ -203,6 +221,37 @@ def cleanup_inactive_qwen_variant(provider: Optional[str] = None,
                 removed.append(path)
     if removed and log:
         log(f"已清理未使用的 Qwen3-ASR {inactive.upper()} 模型文件({len(removed)} 个)。")
+    return removed
+
+
+def cleanup_inactive_zipformer_variant(
+    provider: Optional[str] = None,
+    log: Optional[Callable[[str], None]] = None,
+) -> List[str]:
+    """Remove the Zipformer graph variant that the current provider will not use.
+
+    CPU uses INT8 encoder/joiner with the shared FP32 decoder; CUDA uses all
+    FP32 graphs.  The old variant is safe to remove because the model manager
+    downloads the required files before ASR starts, and the remote repository
+    still keeps both variants for compatibility.
+    """
+    provider = provider or active_asr_provider()
+    inactive = "fp32" if provider != "cuda" else "int8"
+    names = (
+        ("encoder-epoch-99-avg-1.onnx", "joiner-epoch-99-avg-1.onnx")
+        if inactive == "fp32" else
+        ("encoder-epoch-99-avg-1.int8.onnx", "joiner-epoch-99-avg-1.int8.onnx")
+    )
+    root = os.path.join(MODELS_DIR, "zipformer")
+    removed: List[str] = []
+    for name in names:
+        for suffix in ("", ".part"):
+            path = os.path.join(root, name + suffix)
+            if os.path.isfile(path):
+                os.remove(path)
+                removed.append(path)
+    if removed and log:
+        log(f"已清理未使用的 Zipformer {inactive.upper()} 模型文件({len(removed)} 个)。")
     return removed
 
 
@@ -368,6 +417,7 @@ def download_missing(
     # Remove the inactive variant before downloading, so switching from GPU
     # to CPU (or vice versa) does not require both large graphs to coexist.
     cleanup_inactive_qwen_variant(provider, log=log)
+    cleanup_inactive_zipformer_variant(provider, log=log)
     items = missing_items(provider)
     n = len(items)
     for i, item in enumerate(items, 1):

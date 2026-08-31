@@ -89,6 +89,8 @@ python tools/offline_subtitle.py 视频.mp4 --lang 中文 --burn    # 命令行�
 
 - **字幕不抖**:volatile / provisional / committed 三态机,只翻译已定稿句,从根上消除流式 ASR 的反复改写。
 - **低延迟 + 高精度**:两遍识别 —— 流式 Zipformer 先出草稿抢延迟,句末 Qwen3-ASR-0.6B 整段高精度替换。
+- **CPU 兼容性**:流式 Zipformer 使用 INT8 encoder/joiner + FP32 decoder 混合图，
+  保留 CPU 速度并避免全 INT8 decoder 的重复草稿；NVIDIA GPU 使用全 FP32 图。
 - **说话人区分**:线上会议按物理双流(我/远端)天然分开;线下单麦克风靠**声纹聚类**分出发言人,LLM 起名纠错,声纹库下次自动认人。
 - **历史回看**:实时/会议自动存 `.srt` / `.txt`,主页「历史记录」可回看、删除。
 - **多语种**:中 ⇄ 英 / 日 / 韩,运行中可切换。

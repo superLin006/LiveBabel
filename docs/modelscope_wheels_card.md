@@ -20,6 +20,7 @@
 - v1.4.1：Zipformer 流式草稿 + SenseVoice 定稿/离线识别。
 - v1.5.1：保留 v1.4.1 的通用修复和功能，定稿/离线识别改为 Qwen3-ASR-0.6B。
 - 两个版本都支持可选 DeepSeek 语音输入 AI 矫正；API Key 保存在本地设置，不会打进发布包。
+- Zipformer 流式草稿使用 CPU 混合图（INT8 encoder/joiner + FP32 decoder）或 GPU 全 FP32 图；CPU 不使用有重复风险的 INT8 decoder。
 - ChatTTS 按设备下载 CPU INT8 或 GPU FP16；Zipformer GPU 默认使用已验证的 FP32 图。
 
 ## Wheel
