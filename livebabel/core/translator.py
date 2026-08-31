@@ -6,7 +6,8 @@
   * 缓存:相同原文不重复请求,省钱省延迟。
   * 优雅降级:没有 API key 或请求失败时,返回占位串,不影响晃动验证。
 
-key 从环境变量 DEEPSEEK_API_KEY 读,绝不硬编码。
+命令行调用可选择从环境变量 DEEPSEEK_API_KEY 读取；GUI 会显式关闭该回退，
+避免用户机器上遗留的环境变量影响应用。
 """
 
 from __future__ import annotations
@@ -31,10 +32,12 @@ class Translator:
         context_size: int = 3,
         api_key: str = "",
         cache_max: int = 2000,
+        use_environment: bool = True,
     ) -> None:
         """on_result(seg_id, translation): 译文就绪时回调(在后台线程中)。
 
-        api_key 优先用传入的(来自设置),否则回退到环境变量 DEEPSEEK_API_KEY。
+        api_key 优先用传入的(来自设置); ``use_environment`` 为 True 时，
+        空值才回退到环境变量 DEEPSEEK_API_KEY。
         context_size: 给 LLM 的上下文只保留最近这么多句(deque 自动丢旧),
                       所以无论视频多长,每次请求 prompt 大小恒定,不会爆。
         cache_max: 译文缓存条数上限,超了丢最旧的,长视频也不会无限占内存。
@@ -42,7 +45,9 @@ class Translator:
         self.on_result = on_result
         self.target_lang = target_lang
         self.enabled = True         # 「不翻译」模式置 False,submit 直接跳过
-        self.api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+        self.api_key = (api_key or "").strip()
+        if not self.api_key and use_environment:
+            self.api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
         self._q: queue.Queue[Optional[tuple[int, str, bool]]] = queue.Queue()
         self._inflight = 0          # 已提交但未完成的翻译数(含请求中)
         self._inflight_lock = threading.Lock()

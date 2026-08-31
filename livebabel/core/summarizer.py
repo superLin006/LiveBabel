@@ -3,7 +3,7 @@
 实时字幕窗点「总结」时,取本场已定稿的原文,整段发给 DeepSeek 出会议/内容摘要。
 不区分说话人。两种风格:结构化纪要 / 简洁要点。同步调用(放后台线程跑,别卡 UI)。
 
-key 从设置或环境变量 DEEPSEEK_API_KEY 读,绝不硬编码。
+命令行调用可选择从环境变量 DEEPSEEK_API_KEY 读取；GUI 会显式关闭该回退。
 """
 
 from __future__ import annotations
@@ -44,13 +44,16 @@ def summarize(
     style: str = "structured",
     api_key: str = "",
     timeout: int = 120,
+    use_environment: bool = True,
 ) -> str:
     """把 transcript(每句一条)合并后请求 DeepSeek,返回 Markdown 摘要。
 
     style: "structured"(结构化纪要)/ "brief"(简洁要点)。
     无 key 或失败抛 RuntimeError,调用方(后台线程)捕获后回报 UI。
     """
-    api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+    api_key = (api_key or "").strip()
+    if not api_key and use_environment:
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("未设置 DeepSeek API Key,无法生成摘要。")
 

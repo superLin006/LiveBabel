@@ -36,13 +36,16 @@ def translate_sentences(
     context_size: int = 3,
     batch_size: int = BATCH_SIZE,
     on_progress=None,
+    use_environment: bool = True,
 ) -> None:
-    """就地给每个 Sentence 填 translation。api_key 缺省读环境变量 DEEPSEEK_API_KEY。
+    """就地给每个 Sentence 填 translation。命令行可用环境变量回退，GUI 会关闭它。
 
     分批翻译:每 batch_size 句一次请求;某批数量对不齐时自动回退该批逐句翻译。
     on_progress(done, total) 按已完成句数回调。
     """
-    api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+    api_key = (api_key or "").strip()
+    if not api_key and use_environment:
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     total = len(sentences)
     if not api_key:
         for s in sentences:

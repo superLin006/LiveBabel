@@ -222,7 +222,10 @@ class MeetingRecorder:
         """最近一次 refine_speaker 的 {聚类号sid: 显示标签} 映射(声纹库认人用)。"""
         return dict(getattr(self, "_last_diar_labels", {}))
 
-    def apply_llm_correction(self, api_key: str = "", protect: set = None) -> dict:
+    def apply_llm_correction(
+        self, api_key: str = "", protect: set = None,
+        use_environment: bool = True,
+    ) -> dict:
         """声纹分完后,用 LLM 做增强:① 给说话人起名/角色 ② 纠 ASR 同音错字
         ③ 仅在明显矛盾处轻改归属。返回 {'named':n, 'fixed':n, 'reassigned':n}。
 
@@ -241,7 +244,7 @@ class MeetingRecorder:
             # 快照"序号→(标签,文本)",回填时校验条目未变,防网络期间 _items 被改(重跑/续录)
             snap = {i: (self._items[i].speaker, self._items[i].text) for i in idxs}
         # 网络请求在锁外(别占锁等网络)
-        res = refine(items, api_key=api_key)
+        res = refine(items, api_key=api_key, use_environment=use_environment)
         with self._lock:
             # ① 起名:写进 _rename(显示层映射,segments() 会应用);声纹已认出的不覆盖
             for label, name in res.names.items():

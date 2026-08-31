@@ -46,7 +46,7 @@ DEFAULTS = {
     "show_source": True,
     "geometry": None,   # [x, y, w, h]
     "locked": False,
-    "api_key": "",      # DeepSeek key;留空则用环境变量 DEEPSEEK_API_KEY
+    "api_key": "",      # DeepSeek key; GUI 留空即不启用，CLI 可额外用环境变量
 }
 
 
@@ -356,7 +356,7 @@ class SubtitleOverlay(QWidget):
         cur = self.s.get("api_key", "")
         text, ok = QInputDialog.getText(
             self, "设置 DeepSeek API Key",
-            "输入 DeepSeek API Key(留空则用环境变量):",
+            "输入 DeepSeek API Key(留空则清除应用内保存的 Key):",
             QLineEdit.Normal, cur,
         )
         if ok:

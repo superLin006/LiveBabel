@@ -22,12 +22,19 @@ SYSTEM_PROMPT = (
 )
 
 
-def correct_text(text: str, api_key: str = "", timeout: int = 30) -> str:
+def correct_text(
+    text: str,
+    api_key: str = "",
+    timeout: int = 30,
+    use_environment: bool = True,
+) -> str:
     """Correct one finished dictation result and return plain text."""
     text = (text or "").strip()
     if not text:
         return ""
-    key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+    key = (api_key or "").strip()
+    if not key and use_environment:
+        key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
         raise RuntimeError("未设置 DeepSeek API Key，无法进行 AI 矫正")
     resp = requests.post(

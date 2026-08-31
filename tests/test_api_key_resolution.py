@@ -11,10 +11,18 @@ class ApiKeyResolutionTests(unittest.TestCase):
         )
         self.assertEqual((key, source), ("saved-key", "saved"))
 
-    def test_environment_key_is_reported_as_external(self):
+    def test_gui_does_not_consume_environment_key(self):
         key, source = resolve_api_key(
             {"api_key": ""},
             {"DEEPSEEK_API_KEY": " environment-key "},
+        )
+        self.assertEqual((key, source), ("", "missing"))
+
+    def test_cli_can_opt_into_environment_key(self):
+        key, source = resolve_api_key(
+            {"api_key": ""},
+            {"DEEPSEEK_API_KEY": " environment-key "},
+            allow_environment=True,
         )
         self.assertEqual((key, source), ("environment-key", "environment"))
 

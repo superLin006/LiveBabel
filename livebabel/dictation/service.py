@@ -35,10 +35,12 @@ class DictationService(QObject):
     _reqStop = Signal()
 
     def __init__(self, inject_mode: str = "paste", api_key: str = "",
-                 ai_correction: bool = False) -> None:
+                 ai_correction: bool = False,
+                 use_environment: bool = True) -> None:
         super().__init__()
         self._inject_mode = inject_mode
         self._api_key = (api_key or "").strip()
+        self._use_environment = bool(use_environment)
         self._ai_correction = bool(ai_correction)
         self._enabled = False
         self._finalizing = False
@@ -136,7 +138,10 @@ class DictationService(QObject):
             if text and self._ai_correction:
                 original = text
                 try:
-                    text = correct_text(text, self._api_key)
+                    text = correct_text(
+                        text, self._api_key,
+                        use_environment=self._use_environment,
+                    )
                 except Exception as e:
                     text = original
                     self.error.emit(f"AI 矫正失败，将直接输入原文：{e}")
