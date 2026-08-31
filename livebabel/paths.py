@@ -63,20 +63,26 @@ ICON_ICO = res("assets", "icon.ico")
 ICON_PNG = res("assets", "logo.png")
 
 
-def find_icon() -> str:
-    """返回可用的图标文件路径(优先 .ico),找不到返回空串。
+def find_asset(filename: str) -> str:
+    """查找打包/源码运行时的 assets 文件，找不到返回空串。
 
-    兼容打包:PyInstaller 可能把 assets 放进 _internal/ 或 _MEIPASS,逐个找。
+    PyInstaller onedir 默认把 datas 放到 exe 旁的 ``_internal/assets``，
+    而源码运行和部分旧包可能放在程序根目录或 ``_MEIPASS``；统一处理
+    可以避免窗口图标和首页品牌 logo 的路径不一致。
     """
-    cands = [ICON_ICO, ICON_PNG]
+    cands = [res("assets", filename)]
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        cands += [os.path.join(meipass, "assets", "icon.ico"),
-                  os.path.join(meipass, "assets", "logo.png")]
+        cands.append(os.path.join(meipass, "assets", filename))
     if getattr(sys, "frozen", False):
         ed = os.path.join(os.path.dirname(sys.executable), "_internal", "assets")
-        cands += [os.path.join(ed, "icon.ico"), os.path.join(ed, "logo.png")]
+        cands.append(os.path.join(ed, filename))
     for c in cands:
         if os.path.isfile(c):
             return c
     return ""
+
+
+def find_icon() -> str:
+    """返回可用的图标文件路径(优先 .ico),找不到返回空串。"""
+    return find_asset("icon.ico") or find_asset("logo.png")
