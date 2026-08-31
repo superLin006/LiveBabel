@@ -59,6 +59,8 @@ python livebabel_gui.py
 ```
 
 进主页后选模式即可;底部设置一次 DeepSeek API Key(存本地 `settings.json`,各模式共用)。
+图形界面只使用应用内保存的 Key，不会读取 Windows 环境中遗留的 `DEEPSEEK_API_KEY`；
+命令行入口仍支持通过该环境变量配置。
 
 <details><summary><b>macOS</b>(macos 分支,纯 CPU)</summary>
 
