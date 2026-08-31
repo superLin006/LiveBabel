@@ -13,7 +13,7 @@
 [LiveBabel-Models](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-Models)
 按设备下载所需模型；不需要运行额外的模型下载脚本。
 
-v1.4.1 使用 Zipformer 流式草稿 + SenseVoice 定稿的两阶段路线：CPU 使用 INT8；GPU 的 SenseVoice 和 ChatTTS 使用 FP16；Windows CUDA 流式 Zipformer 默认使用已验证的 FP32 图，以避免未经验证的 FP16 runtime 问题。
+v1.4.1 使用 Zipformer 流式草稿 + SenseVoice 定稿的两阶段路线：CPU 使用 INT8 encoder/joiner + FP32 decoder 混合图；GPU 的 SenseVoice 和 ChatTTS 使用 FP16，Windows CUDA 流式 Zipformer 使用全 FP32 图。
 
 ## Wheel
 

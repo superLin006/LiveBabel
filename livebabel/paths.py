@@ -6,8 +6,9 @@ exe 旁边(而不是打进 exe),所以以 exe 目录为基准;源码运行则以
 模型目录结构(v1.3+):
   models/
     vad/silero_vad.onnx
-    zipformer/{tokens,bpe.*,encoder-*.{int8|fp16}.onnx,
-               decoder-*.{int8|fp16}.onnx,joiner-*.{int8|fp16}.onnx}
+    zipformer/{tokens,bpe.*,encoder-*.int8.onnx,
+               decoder-*.onnx,joiner-*.int8.onnx} (CPU hybrid)
+               or unsuffixed FP32 graphs (GPU)
     sense-voice/{model.int8.onnx,model.fp16.onnx,tokens.txt}
     speaker/{campplus.onnx,eres2net_sv_zh.onnx}
     whisper/{config,model.bin,...}

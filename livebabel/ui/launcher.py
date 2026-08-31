@@ -601,7 +601,8 @@ def main() -> None:
     apply_app_theme(app)            # 全局深色调色板,消除白边/白底弹窗
     app.setWindowIcon(app_icon())   # 任务栏/弹窗/所有窗口默认图标
     # 首次使用:核心模型缺失则先弹下载窗(下完才进主页;取消则退出)
-    from livebabel.model_setup import models_ready
+    from livebabel.model_setup import cleanup_inactive_zipformer_variant, models_ready
+    cleanup_inactive_zipformer_variant()
     if not models_ready():
         from livebabel.ui.model_download_dialog import ModelDownloadDialog
         dlg = ModelDownloadDialog()

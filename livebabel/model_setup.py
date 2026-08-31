@@ -96,7 +96,7 @@ MANIFEST: List[ModelItem] = [
         approx_mb=1,
     ),
     ModelItem(
-        name="流式 zipformer(实时识别)",
+        name="流式 Zipformer(实时草稿)",
         files=[
             ("zipformer/tokens.txt", "zipformer/tokens.txt"),
             ("zipformer/bpe.model", "zipformer/bpe.model"),
@@ -110,7 +110,7 @@ MANIFEST: List[ModelItem] = [
         variant_files={
             "int8": [
                 ("zipformer/encoder-epoch-99-avg-1.int8.onnx", "zipformer/encoder-epoch-99-avg-1.int8.onnx"),
-                ("zipformer/decoder-epoch-99-avg-1.int8.onnx", "zipformer/decoder-epoch-99-avg-1.int8.onnx"),
+                ("zipformer/decoder-epoch-99-avg-1.onnx", "zipformer/decoder-epoch-99-avg-1.onnx"),
                 ("zipformer/joiner-epoch-99-avg-1.int8.onnx", "zipformer/joiner-epoch-99-avg-1.int8.onnx"),
             ],
             "fp16": [
@@ -119,8 +119,8 @@ MANIFEST: List[ModelItem] = [
                 ("zipformer/joiner-epoch-99-avg-1.fp16.onnx", "zipformer/joiner-epoch-99-avg-1.fp16.onnx"),
             ],
         },
-        variant_mb={"int8": 190, "fp16": 180},
-        approx_mb=341,
+        variant_mb={"int8": 200, "fp16": 360},
+        approx_mb=360,
     ),
     ModelItem(
         name="SenseVoice(高精度识别)",
@@ -163,6 +163,34 @@ def missing_items(provider: Optional[str] = None) -> List[ModelItem]:
 
 def models_ready(provider: Optional[str] = None) -> bool:
     return not missing_items(provider)
+
+
+def cleanup_inactive_zipformer_variant(
+    provider: Optional[str] = None,
+    log: Optional[Callable[[str], None]] = None,
+) -> List[str]:
+    """Remove Zipformer graphs not used by the current backend.
+
+    CPU keeps INT8 encoder/joiner plus the shared FP32 decoder; CUDA keeps all
+    FP32 graphs. The remote repository retains both variants for compatibility.
+    """
+    provider = provider or active_provider()
+    names = (
+        ("encoder-epoch-99-avg-1.onnx", "joiner-epoch-99-avg-1.onnx")
+        if provider != "cuda" else
+        ("encoder-epoch-99-avg-1.int8.onnx", "joiner-epoch-99-avg-1.int8.onnx")
+    )
+    root = os.path.join(MODELS_DIR, "zipformer")
+    removed: List[str] = []
+    for name in names:
+        for suffix in ("", ".part"):
+            path = os.path.join(root, name + suffix)
+            if os.path.isfile(path):
+                os.remove(path)
+                removed.append(path)
+    if removed and log:
+        log(f"已清理未使用的 Zipformer 图({len(removed)} 个)。")
+    return removed
 
 
 def chattts_ready(provider: Optional[str] = None) -> bool:
@@ -322,6 +350,7 @@ def download_missing(
     当前文件已下/总字节。
     """
     provider = active_provider()
+    cleanup_inactive_zipformer_variant(provider, log=log)
     items = missing_items(provider)
     n = len(items)
     for i, item in enumerate(items, 1):

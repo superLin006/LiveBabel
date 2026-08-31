@@ -5,12 +5,12 @@ LiveBabel v1.4.1 的模型统一存放于本仓库，程序按实际设备选择
 | 目录 | 用途 | CPU | NVIDIA GPU |
 |---|---|---|---|
 | `vad/` | Silero VAD 分段 | 公共 | 公共 |
-| `zipformer/` | 中英流式草稿 | `encoder/decoder/joiner.*.int8.onnx` | FP16 图（待目标 Windows CUDA runtime 验证后发布） |
+| `zipformer/` | 中英流式草稿 | INT8 encoder/joiner + FP32 decoder | 全 FP32 图 |
 | `sense-voice/` | 两阶段定稿、离线字幕（中英日韩粤） | `model.int8.onnx` | `model.fp16.onnx` |
 | `speaker/` | 会议声纹 | 公共 | 公共 |
 | `chattts/` | 可选本地朗读 | `*.int8.onnx` | `*.fp16.onnx` |
 
-SenseVoice FP16 是从原始 `iic/SenseVoiceSmall` 权重重新导出，并已在 sherpa-onnx CUDA provider 上验证。ChatTTS FP16/INT8 均由 `Sophon_model_zoo/chatTTS/tools/export_onnx_merged.py` 从原始 safetensors 重新导出，并已在当前 wheel 上验证 CPU/GPU 语音生成。Zipformer 的 INT8 图来自官方同一中英双语模型包；当前 sherpa-onnx Windows CUDA runtime 对该模型的 FP16 流式图仍需单独验证，因此程序在图缺失时回退到已验证的 FP32 图。
+SenseVoice FP16 是从原始 `iic/SenseVoiceSmall` 权重重新导出，并已在 sherpa-onnx CUDA provider 上验证。ChatTTS FP16/INT8 均由 `Sophon_model_zoo/chatTTS/tools/export_onnx_merged.py` 从原始 safetensors 重新导出，并已在当前 wheel 上验证 CPU/GPU 语音生成。Zipformer CPU 使用官方 INT8 encoder/joiner 与 FP32 decoder 的混合图，GPU 使用全 FP32 图。
 
 ## 旧版本兼容
 

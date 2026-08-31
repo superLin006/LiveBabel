@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/GUI-PySide6-41cd52" alt="pyside6">
 </p>
 
-本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译、纪要和可选的语音输入 AI 矫正调用 DeepSeek API。v1.4.1 回到稳定的 Zipformer + SenseVoice 两阶段路线：CPU 使用 INT8；NVIDIA GPU 上 SenseVoice/ChatTTS 使用 FP16，Zipformer 流式草稿使用当前 Windows CUDA runtime 已验证的 FP32 回退。
+本地优先的语音工具箱:语音识别与 ChatTTS 朗读全部运行在本地模型([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)),只有翻译、纪要和可选的语音输入 AI 矫正调用 DeepSeek API。v1.4.1 回到稳定的 Zipformer + SenseVoice 两阶段路线：CPU 的 Zipformer 使用 INT8 encoder/joiner + FP32 decoder 混合图；NVIDIA GPU 上 SenseVoice/ChatTTS 使用 FP16，Zipformer 流式草稿使用全 FP32。
 
 <p align="center"><img src="docs/launcher_preview.png" alt="主页" width="620"></p>
 
@@ -142,7 +142,7 @@ flowchart LR
 必要的识别模型放在 `models/`(不入库、不进入发布包),首次启动会自动弹窗下载；不需要手动准备模型。
 
 - `silero_vad.onnx` — 语音活动检测
-- `zipformer/` — 流式 ASR(中英)，CPU 下载 `*.int8.onnx`；当前 Windows CUDA 流式 runtime 默认使用已验证的 FP32 图，FP16 仅在显式验证后启用
+- `zipformer/` — 流式 ASR(中英)，CPU 下载 INT8 encoder/joiner + FP32 decoder 混合图；Windows CUDA 下载全 FP32 图
 - `sense-voice/` — 非流式高精度 ASR，CPU 下载 `model.int8.onnx`，NVIDIA GPU 下载 `model.fp16.onnx`
 - 3D-Speaker campplus / eres2net — 会议声纹区分
 
@@ -152,7 +152,7 @@ ChatTTS 是独立的可选模型,不随首次启动的必要模型一起下载�
 
 模型仓库：[ModelScope · LiveBabel-Models](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-Models)。CPU/GPU 图按需选择，本地不会同时保存两套大模型。
 
-说明：NVIDIA GPU 的 SenseVoice FP16、ChatTTS FP16 已在当前 sherpa-onnx CUDA wheel 上验证；Zipformer FP16 仍受 Windows CUDA 流式 runtime 兼容性影响，程序默认使用已验证的 FP32 图，不会把未经验证的 FP16 图作为默认发布物。CPU/GPU 应用包的下载位置见 [发布包说明](packaging/RELEASE.md)。
+说明：NVIDIA GPU 的 SenseVoice FP16、ChatTTS FP16 已在当前 sherpa-onnx CUDA wheel 上验证；Zipformer CPU 使用混合精度图（INT8 encoder/joiner + FP32 decoder），GPU 使用全 FP32 图。CPU/GPU 应用包的下载位置见 [发布包说明](packaging/RELEASE.md)。
 </details>
 
 ## 路线图

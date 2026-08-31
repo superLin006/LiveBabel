@@ -23,17 +23,21 @@ def _variant(provider: str) -> str:
 def zipformer_model_paths(model_dir: str, provider: str = "cpu") -> Tuple[str, str, str, str]:
     """Return ``(tokens, encoder, decoder, joiner)`` for Zipformer.
 
-    INT8 is selected on CPU and FP16 on CUDA.  Unsuffixed FP32 graphs are
-    accepted only as a migration fallback so an already-installed v1.4.0
-    copy can still start while the new graph is downloading.
+    CPU uses INT8 encoder/joiner with the shared FP32 decoder. Quantizing the
+    decoder as well can produce repeated draft tokens. CUDA uses all FP32.
+    Unsuffixed FP32 graphs remain a migration fallback for older installs.
     """
-    suffix = _variant(provider)
     stem = "epoch-99-avg-1"
     selected = (
         os.path.join(model_dir, "tokens.txt"),
-        os.path.join(model_dir, f"encoder-{stem}.{suffix}.onnx"),
-        os.path.join(model_dir, f"decoder-{stem}.{suffix}.onnx"),
-        os.path.join(model_dir, f"joiner-{stem}.{suffix}.onnx"),
+        os.path.join(model_dir, f"encoder-{stem}.onnx"),
+        os.path.join(model_dir, f"decoder-{stem}.onnx"),
+        os.path.join(model_dir, f"joiner-{stem}.onnx"),
+    ) if provider == "cuda" else (
+        os.path.join(model_dir, "tokens.txt"),
+        os.path.join(model_dir, f"encoder-{stem}.int8.onnx"),
+        os.path.join(model_dir, f"decoder-{stem}.onnx"),
+        os.path.join(model_dir, f"joiner-{stem}.int8.onnx"),
     )
     if _all_files(selected):
         return selected

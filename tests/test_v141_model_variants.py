@@ -14,14 +14,19 @@ class ModelVariantTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             for name in ("tokens.txt", "bpe.model", "bpe.vocab",
                          "encoder-epoch-99-avg-1.int8.onnx",
-                         "decoder-epoch-99-avg-1.int8.onnx",
+                         "decoder-epoch-99-avg-1.onnx",
                          "joiner-epoch-99-avg-1.int8.onnx",
-                         "encoder-epoch-99-avg-1.fp16.onnx",
-                         "decoder-epoch-99-avg-1.fp16.onnx",
-                         "joiner-epoch-99-avg-1.fp16.onnx"):
+                         "encoder-epoch-99-avg-1.onnx",
+                         "joiner-epoch-99-avg-1.onnx"):
                 open(os.path.join(d, name), "wb").close()
-            self.assertTrue(zipformer_model_paths(d, "cpu")[1].endswith(".int8.onnx"))
-            self.assertTrue(zipformer_model_paths(d, "cuda")[1].endswith(".fp16.onnx"))
+            cpu = zipformer_model_paths(d, "cpu")
+            cuda = zipformer_model_paths(d, "cuda")
+            self.assertTrue(cpu[1].endswith("encoder-epoch-99-avg-1.int8.onnx"))
+            self.assertTrue(cpu[2].endswith("decoder-epoch-99-avg-1.onnx"))
+            self.assertTrue(cpu[3].endswith("joiner-epoch-99-avg-1.int8.onnx"))
+            self.assertTrue(cuda[1].endswith("encoder-epoch-99-avg-1.onnx"))
+            self.assertTrue(cuda[2].endswith("decoder-epoch-99-avg-1.onnx"))
+            self.assertTrue(cuda[3].endswith("joiner-epoch-99-avg-1.onnx"))
 
     def test_sensevoice_and_chattts_variants(self):
         with tempfile.TemporaryDirectory() as d:
