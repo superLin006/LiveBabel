@@ -2,6 +2,8 @@
 
 LiveBabel 的本地语音模型仓库，供实时字幕、语音输入、会议记录和离线字幕使用。
 
+Hugging Face 镜像：[XHxiehuan/LiveBabel-Models](https://huggingface.co/XHxiehuan/LiveBabel-Models)。
+
 ## 模型清单
 
 | 目录 | 模型/用途 | v1.5 状态 | 约占用 |

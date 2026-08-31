@@ -45,6 +45,7 @@
 
 - **Windows 10 / 11 64 位 CPU 版** — 从 [ModelScope 应用包仓库](https://www.modelscope.cn/models/XHxiehuan/LiveBabel-sherpa-onnx-wheels) 下载 `app/v1.5.1/LiveBabel-CPU-v1.5.1-win64.zip`,无需 NVIDIA 显卡。
 - **Windows 10 / 11 64 位 GPU 版** — 同一 ModelScope 仓库的 `app/v1.5.1/LiveBabel-GPU-v1.5.1-win64.zip`,需要 NVIDIA 驱动。
+- Hugging Face 镜像：[模型仓库](https://huggingface.co/XHxiehuan/LiveBabel-Models) · [应用包/wheel 仓库](https://huggingface.co/XHxiehuan/LiveBabel-sherpa-onnx-wheels)。
 - **macOS Apple Silicon (arm64)** — 当前使用 `macos` 分支源码运行，暂未发布 v1.5.0 独立安装包。
 - 完整版本说明见 [LiveBabel v1.5.1 Release](https://github.com/superLin006/LiveBabel/releases/tag/v1.5.1)。
 

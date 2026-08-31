@@ -2,6 +2,8 @@
 
 本仓库托管 LiveBabel 使用的 Windows Python wheel，以及 v1.4.1/v1.5.1 Windows 应用包。
 
+Hugging Face 镜像：[XHxiehuan/LiveBabel-sherpa-onnx-wheels](https://huggingface.co/XHxiehuan/LiveBabel-sherpa-onnx-wheels)。
+
 ## 应用包
 
 | 目录 | 文件 | 适用设备 |
