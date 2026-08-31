@@ -162,7 +162,10 @@ def wire_summarize(overlay, manager, get_api_key) -> None:
 
         def work():
             try:
-                md = summarize(transcript, style=style, api_key=api_key)
+                md = summarize(
+                    transcript, style=style, api_key=api_key,
+                    use_environment=False,
+                )
                 runner.ok.emit(md)
             except Exception as e:
                 runner.fail.emit(f"{type(e).__name__}: {e}")

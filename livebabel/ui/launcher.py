@@ -46,21 +46,25 @@ MODE_COLORS = {
 }
 
 
-def resolve_api_key(settings: dict, environ: dict | None = None) -> tuple[str, str]:
+def resolve_api_key(
+    settings: dict,
+    environ: dict | None = None,
+    allow_environment: bool = False,
+) -> tuple[str, str]:
     """Resolve the key and preserve where it came from for honest UI feedback.
 
-    A key inherited from ``DEEPSEEK_API_KEY`` is intentionally supported, but it
-    must not be presented as if the user had entered it in LiveBabel.  Keeping
-    the source explicit also makes stale developer-machine environment values
-    immediately visible instead of looking like a bundled/default key.
+    GUI calls leave ``allow_environment`` disabled so a globally configured
+    developer/CI variable cannot silently affect ordinary users. CLI callers
+    may opt in to the historical environment-variable fallback.
     """
     env = os.environ if environ is None else environ
     saved = str(settings.get("api_key", "") or "").strip()
     if saved:
         return saved, "saved"
-    inherited = str(env.get("DEEPSEEK_API_KEY", "") or "").strip()
-    if inherited:
-        return inherited, "environment"
+    if allow_environment:
+        inherited = str(env.get("DEEPSEEK_API_KEY", "") or "").strip()
+        if inherited:
+            return inherited, "environment"
     return "", "missing"
 
 
@@ -371,9 +375,6 @@ class Launcher(QWidget):
         key, source = resolve_api_key(self.s)
         if source == "saved":
             self.key_status.setText(f"✓ 已保存(••••{key[-4:]})")
-        elif source == "environment":
-            # 环境变量是外部注入的，不应伪装成用户在应用内配置的 Key。
-            self.key_status.setText(f"⚠ 使用外部环境变量(未在应用保存:••••{key[-4:]})")
         else:
             self.key_status.setText("⚠ 未设置，翻译和 AI 功能不可用")
 
@@ -381,7 +382,7 @@ class Launcher(QWidget):
         cur = self.s.get("api_key", "")
         key, ok = QInputDialog.getText(
             self, "DeepSeek API Key",
-            "输入 DeepSeek API Key(留空则使用环境变量 DEEPSEEK_API_KEY):",
+            "输入 DeepSeek API Key(留空则不启用翻译和 AI 功能):",
             QLineEdit.Normal, cur,
         )
         if ok:
@@ -509,11 +510,11 @@ def _start_live_overlay(api_key: str):
         on_result=manager.set_translation,
         target_lang=overlay.s["lang"],
         api_key=api_key,
+        use_environment=False,
     )
     translator.enabled = overlay.translate_enabled()   # 「不翻译」则不发翻译请求
     overlay.api_key_changed.connect(
-        lambda k: setattr(translator, "api_key",
-                          (k or os.environ.get("DEEPSEEK_API_KEY", "")).strip())
+        lambda k: setattr(translator, "api_key", (k or "").strip())
     )
 
     def push_to_overlay() -> None:
@@ -567,7 +568,7 @@ def _start_live_overlay(api_key: str):
     from livebabel.ui.summary_window import wire_summarize
     wire_summarize(
         overlay, manager,
-        lambda: (overlay.s.get("api_key", "") or os.environ.get("DEEPSEEK_API_KEY", "")).strip(),
+        lambda: str(overlay.s.get("api_key", "") or "").strip(),
     )
 
     stopped = {"v": False}

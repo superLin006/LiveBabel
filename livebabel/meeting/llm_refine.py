@@ -51,13 +51,15 @@ SYSTEM_PROMPT = (
 
 
 def refine(items: List[Tuple[int, str, str]], api_key: str = "",
-           timeout: int = 120) -> RefineResult:
+           timeout: int = 120, use_environment: bool = True) -> RefineResult:
     """items: [(序号, 说话人标签, 文本)]。返回 RefineResult(已校验)。
 
     无 key / 请求失败 / 解析失败 → 返回空 RefineResult。
     """
     res = RefineResult()
-    api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+    api_key = (api_key or "").strip()
+    if not api_key and use_environment:
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not api_key or not items:
         return res
 

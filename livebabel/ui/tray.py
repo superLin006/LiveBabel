@@ -24,6 +24,7 @@ class DictationTray:
         self._service = DictationService(
             api_key=api_key,
             ai_correction=bool(self._settings.get("dictation_ai_correction", False)),
+            use_environment=False,
         )
         self._overlay = DictationOverlay()
         self._on_shutdown = on_shutdown   # 关闭时回调(launcher 同步卡片角标)

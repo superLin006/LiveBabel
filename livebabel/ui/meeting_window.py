@@ -517,7 +517,8 @@ class MeetingWindow(QWidget):
                     self.bridge.diar_status.emit("正在用 AI 优化(起名/纠错)…")
                     try:
                         self.recorder.apply_llm_correction(
-                            api_key=api_key, protect=recognized)
+                            api_key=api_key, protect=recognized,
+                            use_environment=False)
                     except Exception:
                         pass
                 self.bridge.diar_ok.emit(n)
@@ -621,7 +622,10 @@ class MeetingWindow(QWidget):
         def work():
             try:
                 from livebabel.meeting.minutes import make_minutes
-                md = make_minutes(lines, style=style, api_key=api_key)
+                md = make_minutes(
+                    lines, style=style, api_key=api_key,
+                    use_environment=False,
+                )
                 self.bridge.minutes_ok.emit(md)
             except Exception as e:
                 self.bridge.minutes_fail.emit(f"{type(e).__name__}: {e}")

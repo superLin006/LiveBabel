@@ -1,8 +1,7 @@
 """Optional DeepSeek post-correction for voice input.
 
-The correction runs only after the user releases the hotkey.  Draft text is
-never sent to the network, so enabling it cannot add latency to live ASR or
-change subtitles/meeting transcripts.
+Correction runs only after the user releases the hotkey. Draft text is never
+sent to the network, so enabling it does not add latency to live ASR.
 """
 
 from __future__ import annotations
@@ -23,19 +22,21 @@ SYSTEM_PROMPT = (
 )
 
 
-def correct_text(text: str, api_key: str = "", timeout: int = 30) -> str:
-    """Correct one finished dictation result and return plain text.
-
-    Raises ``RuntimeError`` when the key is missing or the API response is
-    malformed; the caller is responsible for falling back to the ASR text.
-    """
+def correct_text(
+    text: str,
+    api_key: str = "",
+    timeout: int = 30,
+    use_environment: bool = True,
+) -> str:
+    """Correct one finished dictation result and return plain text."""
     text = (text or "").strip()
     if not text:
         return ""
-    key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+    key = (api_key or "").strip()
+    if not key and use_environment:
+        key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
         raise RuntimeError("未设置 DeepSeek API Key，无法进行 AI 矫正")
-
     resp = requests.post(
         API_URL,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -43,13 +44,7 @@ def correct_text(text: str, api_key: str = "", timeout: int = 30) -> str:
             "model": MODEL,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        "请只输出校正后的文本，不要加引号、说明或 Markdown。\n\n"
-                        f"原始听写：\n{text}"
-                    ),
-                },
+                {"role": "user", "content": "请只输出校正后的文本，不要加引号、说明或 Markdown。\n\n原始听写：\n" + text},
             ],
             "temperature": 0.0,
             "stream": False,

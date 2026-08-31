@@ -161,7 +161,8 @@ class _Worker(QThread):
 
             translate_sentences(
                 sents, target_lang=self.o["target_lang"],
-                api_key=self.o["api_key"], on_progress=on_tr,
+                api_key=self.o["api_key"], use_environment=False,
+                on_progress=on_tr,
             )
             self.log.emit(f"      翻译完成,耗时 {_fmt(time.time()-t1)}。")
         else:

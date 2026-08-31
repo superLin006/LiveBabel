@@ -43,9 +43,12 @@ def make_minutes(
     style: str = "structured",
     api_key: str = "",
     timeout: int = 180,
+    use_environment: bool = True,
 ) -> str:
     """transcript_lines: 形如 "[00:12] 我:……" 的行。返回 Markdown 纪要。"""
-    api_key = (api_key or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+    api_key = (api_key or "").strip()
+    if not api_key and use_environment:
+        api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("未设置 DeepSeek API Key,无法生成纪要。")
     text = "\n".join(l for l in transcript_lines if l.strip())
