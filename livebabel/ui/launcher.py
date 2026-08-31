@@ -253,11 +253,13 @@ class Launcher(QWidget):
         root.setSpacing(6)
 
         # 品牌头:logo(assets/logo.png)+ 字标,横排居中
-        from livebabel.paths import ICON_PNG
+        from livebabel.paths import find_asset
         head = QHBoxLayout()
         head.setSpacing(14)
         head.addStretch(1)
-        logo_pm = QPixmap(ICON_PNG)
+        # PyInstaller onedir 将 datas 放到 _internal/assets；不能直接使用
+        # app_dir()/assets/logo.png，否则发布包首页会缺少品牌 logo。
+        logo_pm = QPixmap(find_asset("logo.png"))
         if not logo_pm.isNull():
             logo = QLabel()
             logo.setPixmap(logo_pm.scaled(
