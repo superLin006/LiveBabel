@@ -10,6 +10,11 @@ from __future__ import annotations
 # 应用版本(首页页脚显示;发版时与 git tag 同步)
 APP_VERSION = "1.5.1"
 
+# 公开项目署名。只包含公开仓库信息，不放入任何凭证或用户数据。
+GITHUB_OWNER = "superLin006"
+GITHUB_REPO = "LiveBabel"
+GITHUB_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}"
+
 # ---- 浅色苹果风色板 ----
 BG = "#F5F5F7"            # 窗口背景(macOS 经典浅灰)
 CARD = "#FFFFFF"          # 卡片/输入框背景(纯白浮于浅灰之上)
@@ -73,6 +78,10 @@ QLabel#title {{
 QLabel#subtitle {{
     color: {SUBTEXT};
     font-size: 13px;
+}}
+QLabel#brand {{
+    color: {SUBTEXT};
+    font-size: 11px;
 }}
 QLabel#section {{
     color: {SUBTEXT};

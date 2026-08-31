@@ -15,7 +15,8 @@ import threading
 
 from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import (
-    QColor, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+    QColor, QLinearGradient, QPainter, QPainterPath, QPen,
+    QPixmap,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from livebabel.ui.gui_common import (
     apply_theme, ACCENT, ACCENT_DEEP, BORDER, CARD, CARD_HOVER, SUBTEXT,
-    LAUNCHER_W, LAUNCHER_H, APP_VERSION,
+    GITHUB_OWNER, GITHUB_URL, LAUNCHER_W, LAUNCHER_H, APP_VERSION,
 )
 from livebabel.ui.overlay import load_settings, persist_setting
 
@@ -43,6 +44,24 @@ MODE_COLORS = {
     "meeting":   ("#5BE080", "#30D158"),   # 绿:会议
     "dictation": ("#FFBE4D", "#FF9F0A"),   # 橙:语音输入
 }
+
+
+def resolve_api_key(settings: dict, environ: dict | None = None) -> tuple[str, str]:
+    """Resolve the key and preserve where it came from for honest UI feedback.
+
+    A key inherited from ``DEEPSEEK_API_KEY`` is intentionally supported, but it
+    must not be presented as if the user had entered it in LiveBabel.  Keeping
+    the source explicit also makes stale developer-machine environment values
+    immediately visible instead of looking like a bundled/default key.
+    """
+    env = os.environ if environ is None else environ
+    saved = str(settings.get("api_key", "") or "").strip()
+    if saved:
+        return saved, "saved"
+    inherited = str(env.get("DEEPSEEK_API_KEY", "") or "").strip()
+    if inherited:
+        return inherited, "environment"
+    return "", "missing"
 
 
 def _mode_icon(kind: str, size: int = 46) -> QPixmap:
@@ -249,6 +268,16 @@ class Launcher(QWidget):
         sub.setObjectName("subtitle")
         tcol.addWidget(title)
         tcol.addWidget(sub)
+        # 公开项目署名：放在品牌区，始终可见但不抢功能卡片的注意力。
+        brand = QLabel(
+            f'<a href="{GITHUB_URL}" style="color:{ACCENT}; '
+            'text-decoration:none;">GitHub · @'
+            f'{GITHUB_OWNER}</a>'
+        )
+        brand.setObjectName("brand")
+        brand.setOpenExternalLinks(True)
+        brand.setToolTip(f"打开 GitHub 项目：{GITHUB_URL}")
+        tcol.addWidget(brand)
         head.addLayout(tcol)
         head.addStretch(1)
         root.addLayout(head)
@@ -311,12 +340,17 @@ class Launcher(QWidget):
         root.addWidget(key_card)
         self._refresh_key_status()
 
-        # 版本页脚
+        # 版本页脚 + 公开署名水印。只展示公开账号，不覆盖字幕内容。
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        owner = QLabel(f"GitHub · @{GITHUB_OWNER}")
+        owner.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
+        footer.addWidget(owner)
         ver = QLabel(f"v{APP_VERSION}")
         ver.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
-        ver.setAlignment(Qt.AlignRight)
+        footer.addWidget(ver)
         root.addSpacing(4)
-        root.addWidget(ver)
+        root.addLayout(footer)
 
     def _open_history(self) -> None:
         from livebabel.ui.history_window import HistoryWindow
@@ -325,15 +359,17 @@ class Launcher(QWidget):
     # ---- API Key ----
 
     def _effective_key(self) -> str:
-        return (self.s.get("api_key", "") or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
+        return resolve_api_key(self.s)[0]
 
     def _refresh_key_status(self) -> None:
-        key = self._effective_key()
-        if key:
-            src = "环境变量" if not self.s.get("api_key") else "已保存"
-            self.key_status.setText(f"✓ 已配置({src}:••••{key[-4:]})")
+        key, source = resolve_api_key(self.s)
+        if source == "saved":
+            self.key_status.setText(f"✓ 已保存(••••{key[-4:]})")
+        elif source == "environment":
+            # 环境变量是外部注入的，不应伪装成用户在应用内配置的 Key。
+            self.key_status.setText(f"⚠ 使用外部环境变量(未在应用保存:••••{key[-4:]})")
         else:
-            self.key_status.setText("⚠ 未设置,翻译将不可用")
+            self.key_status.setText("⚠ 未设置，翻译和 AI 功能不可用")
 
     def _set_key(self) -> None:
         cur = self.s.get("api_key", "")
